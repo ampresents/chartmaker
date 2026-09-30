@@ -1,5 +1,5 @@
 {
-    "comment": "https://chartmaker.shop/",
+    "comment": "YYYY/MM/DD 第◯◯回魔界殲滅戦争 Round 1",
     "timelag": 0,
     "color_table":{
         "blue"   :[255,80,0],
@@ -77,5 +77,5 @@
         "font"     :"/font/meiryo.ttc",
         "fontsize" :48
     },
-    "logo_image": "/image/logo.png"
+    "logo_image": "/logo.png"
 }

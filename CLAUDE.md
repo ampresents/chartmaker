@@ -18,8 +18,27 @@ generate_chart("./src/<name>.txt", "./output/<name>.png", json.load(open("config
 
 - Run it from the repo root. `ChartLib` imports `BASE_DIR` from `mysite/settings.py`, and every asset path (fonts, images, logo) is `BASE_DIR` + a path that starts with `/`.
 - `src/` (input schedules) and `output/` are not tracked by git, so create them locally. `output/` must exist: `generate_detail` also writes `output/cleartime.json` and `output/detail.json` there as debug dumps.
-- Dependencies: `opencv-python`, `numpy`, `Pillow`. Pillow must be **< 10** because the code calls `ImageDraw.textsize`, which was removed in Pillow 10.
+- Dependencies: `opencv-python`, `numpy`, `Pillow`. Pillow must be **< 10** because the code calls `ImageDraw.textsize`, which was removed in Pillow 10. OpenCV must be **< 5**: OpenCV 5 replaced the Hershey fonts in `putText` and ignores `thickness`, which changes the typeface and removes the text outlines (the thick `bgcolor` underlay).
 - `mysite/` holds only a leftover Django `settings.py` (the site ran at chartmaker.shop). There is no Django app in this repo. Only `BASE_DIR` is used.
+
+## Browser GUI (`app.py` + `web/`)
+
+```sh
+py -3.11 -m venv .venv
+.venv/Scripts/pip install -r requirements.txt
+.venv/Scripts/python app.py        # http://127.0.0.1:5000 (override with PORT)
+```
+
+- `app.py` is a thin, stateless Flask wrapper. It never modifies ChartLib's behaviour. Endpoints:
+  - `GET /logo.png` serves the root `logo.png` for the GUI header. It is the same file as config.json's `logo_image`, which is drawn into the chart.
+  - `GET /api/config` returns config.json and the list of `image/*.png`.
+  - `POST /api/parse {text}` returns `ChartLib.parse`.
+  - `POST /api/detail {text}` returns `generate_detail`, which the GUI uses for Lv/score.
+  - `POST /api/render {text}` writes the txt to a temp dir and calls `generate_chart`, returning a PNG.
+  - Validation errors are returned as 400 `{error}`.
+- `web/app.js` (vanilla JS, no build step) stores each action as an absolute start second. It converts back to relative `wait_seconds` in `toText()`, and the output must stay parseable by the unchanged `parse`.
+- Timeline drag works like a sliding puzzle. A block moves alone through gaps and pushes touching neighbours. Pushed blocks stay where they were pushed.
+- The plan is to deploy publicly on Google Cloud (Cloud Run with gunicorn). Keep the server stateless.
 
 ## Input schedule format (`src/*.txt`, parsed by `parse`)
 
@@ -27,7 +46,7 @@ generate_chart("./src/<name>.txt", "./output/<name>.png", json.load(open("config
 - `::key=value` defines a constant. A bare `::key` sets that key to `None`, which is how the presence-only flags are turned on. Constants are merged over `config.json` (`setting = dict(config, **constants)`). Values stay strings, so numbers like `::timelag=3` are converted with `int()` at the point of use. Constants the chart relies on:
   - `::1st_boss=`, `::2nd_boss=`, `::3rd_boss=`, `::Realm_boss=` set each boss's element color (`blue`, `red`, `green`, `yellow`, or `white`). These are required because `setting[action]` is looked up for every battle.
   - The flags `display_party`, `display_boss`, and `display_team` are checked by presence only.
-  - `image_1st`, `image_2nd`, `image_3rd`, and `image_realm` give the boss icon paths used when `display_boss` is set, for example `/image/dragon_red.png`.
+  - `image_1st`, `image_2nd`, `image_3rd`, and `image_realm` give the boss icon paths used when `display_boss` is set, for example `/image/dragon_red.png`. The images can be any size or aspect ratio: `load_boss_icon` crops the centre square and resizes it to 100×100, keeping the alpha channel (premultiplied, so edges don't darken). `flatten_boss_icon` fills transparent areas with that battle's boss element color from `color_table`; the optional `::icon_bgcolor=<color_table name>` forces a single color for every icon.
   - `::<player_id>=<display name>` sets a player's display name.
 - An action line has the form `player_id,wait_seconds,boss,battle_seconds[,score_rate]`.
   - `boss` must be one of `1st_boss`, `2nd_boss`, `3rd_boss`, or `Realm_boss`.
@@ -46,6 +65,7 @@ The pipeline is `generate_chart` → `parse` → `generate_detail` → `calc_lev
   3. OpenCV draws the text labels in front of the grid.
   4. The image is converted to PIL for the Japanese-capable text (player and team names, the comment, in `font/meiryo.ttc`).
   5. The image is converted back to OpenCV for the party dots and the logo.
+- The y positions of the time labels (battle start, battle end, `Nsec` duration, re-sortie time) come from `layout_time_labels`. For each player column it spreads the labels apart so they keep a minimum spacing while moving as little as possible from their default positions (least squares). This stops labels overlapping when a battle is very short or when blocks sit right next to each other.
 - Layout constants are hardcoded. Columns are 246 px wide starting at x=120, with a maximum of 20 players. `margin_top` is 160, and y = seconds + `margin_top`. The score footer is at y≈3840–3980.
 - All colors in `config.json` are in **BGR** order, because the arrays are OpenCV arrays and the PIL fills are written straight into them.
 - Many draw calls read `config[...]` instead of `setting[...]`. A `::` constant in the txt file overrides only the keys read through `setting`: timelag, boss colors, the display flags, images, fonts, the comment, and the logo.
