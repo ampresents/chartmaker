@@ -1,0 +1,81 @@
+{
+    "comment": "https://chartmaker.shop/",
+    "timelag": 0,
+    "color_table":{
+        "blue"   :[255,80,0],
+        "red"    :[60,60,230],
+        "green"  :[20,180,0],
+        "yellow" :[32,220,220],
+        "white"  :[240,220,220]
+    },
+    "player_name":{
+        "color"    :[0, 180, 240],
+        "font"     :"/font/meiryo.ttc",
+        "fontsize" :40
+    },
+    "team":{
+        "team_color":{
+            "Alpha"  :[0,255,255],
+            "Beta"   :[64,64,255],
+            "Gamma"  :[255,160,64],
+            "Delta"  :[96,240,0],
+            "Epsilon":[0,128,240],
+            "Zeta"   :[0,240,96],
+            "Eta"    :[128,255,255],
+            "Shadow" :[240,32,164]
+        },
+        "font"     :"/font/meiryo.ttc",
+        "fontsize" :32
+    },
+    "battle_start":{
+        "color"    :[0, 0, 0],
+        "bgcolor"  :[224, 224, 224]
+    },
+    "battle_end":{
+        "color"    :[0, 0, 0],
+        "bgcolor"  :[224, 224, 224]
+    },
+    "cool_off":{
+        "color"    :[0, 0, 0],
+        "bgcolor"  :[224, 224, 224]
+    },
+    "play_time":{
+        "color"    :[255, 180, 240],
+        "bgcolor"  :[0, 0, 0]
+    },
+    "score_rate":{
+        "color"    :[128, 128, 128],
+        "bgcolor"  :[240, 240, 240],
+        "pattern1" :96,
+        "pattern2" :128
+    },
+    "level":{
+        "color"    :[255, 255, 0],
+        "bgcolor"  :[0, 0, 0]
+    },
+    "single_score":{
+        "color"    :[255, 255, 60],
+        "bgcolor"  :[0, 0, 0]
+    },
+    "estimate_score":{
+        "color"    :[220, 220, 60]
+    },
+    "max_score":{
+        "color"    :[128, 128, 220]
+    },
+    "grid_color":{
+        "start"    :[0, 180, 240],
+        "end"      :[0, 180, 240],
+        "odd"      :[100, 60, 240],
+        "even"     :[0, 180, 240],
+        "30min"    :[240, 100, 140],
+        "time"     :[0, 180, 240],
+        "time30min":[240, 100, 140]
+    },
+    "comment_font":{
+        "color"    :[192, 192, 192],
+        "font"     :"/font/meiryo.ttc",
+        "fontsize" :48
+    },
+    "logo_image": "/image/logo.png"
+}
