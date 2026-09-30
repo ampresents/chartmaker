@@ -1,0 +1,51 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Overview
+
+chartmaker renders a raid timeline chart as a PNG: one column per player, one pixel per second over a 60-minute window. It shows each boss battle, the 5-minute cooldown, the floor level, and the expected score. All logic lives in `ChartLib.py`. `time_chart.ipynb` is the driver. There is no build system, test suite, linter, or requirements file.
+
+## Running
+
+Run the notebook cell in `time_chart.ipynb`. It uses Python 3.10. The equivalent code is:
+
+```python
+import json
+from ChartLib import generate_chart
+generate_chart("./src/<name>.txt", "./output/<name>.png", json.load(open("config.json")))
+```
+
+- Run it from the repo root. `ChartLib` imports `BASE_DIR` from `mysite/settings.py`, and every asset path (fonts, images, logo) is `BASE_DIR` + a path that starts with `/`.
+- `src/` (input schedules) and `output/` are not tracked by git, so create them locally. `output/` must exist: `generate_detail` also writes `output/cleartime.json` and `output/detail.json` there as debug dumps.
+- Dependencies: `opencv-python`, `numpy`, `Pillow`. Pillow must be **< 10** because the code calls `ImageDraw.textsize`, which was removed in Pillow 10.
+- `mysite/` holds only a leftover Django `settings.py` (the site ran at chartmaker.shop). There is no Django app in this repo. Only `BASE_DIR` is used.
+
+## Input schedule format (`src/*.txt`, parsed by `parse`)
+
+- A line starting with `#` is a comment.
+- `::key=value` defines a constant. A bare `::key` sets that key to `None`, which is how the presence-only flags are turned on. Constants are merged over `config.json` (`setting = dict(config, **constants)`). Values stay strings, so numbers like `::timelag=3` are converted with `int()` at the point of use. Constants the chart relies on:
+  - `::1st_boss=`, `::2nd_boss=`, `::3rd_boss=`, `::Realm_boss=` set each boss's element color (`blue`, `red`, `green`, `yellow`, or `white`). These are required because `setting[action]` is looked up for every battle.
+  - The flags `display_party`, `display_boss`, and `display_team` are checked by presence only.
+  - `image_1st`, `image_2nd`, `image_3rd`, and `image_realm` give the boss icon paths used when `display_boss` is set, for example `/image/dragon_red.png`.
+  - `::<player_id>=<display name>` sets a player's display name.
+- An action line has the form `player_id,wait_seconds,boss,battle_seconds[,score_rate]`.
+  - `boss` must be one of `1st_boss`, `2nd_boss`, `3rd_boss`, or `Realm_boss`.
+  - `wait_seconds` is added to that player's running clock before the push. Each push then advances the clock by `timelag + 300` (the cooldown).
+  - `score_rate` defaults to `1.0`. A value below 1 draws a checkered pattern and a percentage on the battle.
+  - A player ID has the form `<Team><2 chars>`, for example `Alpha01`. The team name is `raw_name[:-2]`, and team colors come from `config.json` → `team.team_color`.
+
+## Architecture (`ChartLib.py`)
+
+The pipeline is `generate_chart` → `parse` → `generate_detail` → `calc_level`, then drawing.
+
+- `calc_level` simulates floor progression. The three regular bosses must be cleared on the current floor before a `Realm_boss` clear advances to the next floor. It returns the clear time of each floor. `generate_detail` uses these times to assign each battle its `level`, and the level sets the score: `50000 * min((floor-1)//5+1, 5)`, times 1.2 for the Realm boss.
+- Drawing happens in layers, and `generate_detail` is called twice (once per pass):
+  1. OpenCV draws the battle and cooldown blocks behind the grid.
+  2. OpenCV draws the grid and time labels.
+  3. OpenCV draws the text labels in front of the grid.
+  4. The image is converted to PIL for the Japanese-capable text (player and team names, the comment, in `font/meiryo.ttc`).
+  5. The image is converted back to OpenCV for the party dots and the logo.
+- Layout constants are hardcoded. Columns are 246 px wide starting at x=120, with a maximum of 20 players. `margin_top` is 160, and y = seconds + `margin_top`. The score footer is at y≈3840–3980.
+- All colors in `config.json` are in **BGR** order, because the arrays are OpenCV arrays and the PIL fills are written straight into them.
+- Many draw calls read `config[...]` instead of `setting[...]`. A `::` constant in the txt file overrides only the keys read through `setting`: timelag, boss colors, the display flags, images, fonts, the comment, and the logo.
