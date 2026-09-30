@@ -13,17 +13,18 @@ from mysite.settings import BASE_DIR
 def parse(text, item_num=5):
     chart = []
     constant = {}
-    for i, line in enumerate(text):
+    for i, raw_line in enumerate(text):
+        line = raw_line.rstrip("\r\n") # 行末の改行を削除（最終行に改行が無くても文字を欠かさない）
         # コメント
-        if line[0] == "#":
+        if line.startswith("#"):
             continue
         # 予約語の処理
         if line[:2] == "::":
-            tokens =line[2:-1].split("=")
+            tokens =line[2:].split("=")
             constant[tokens[0]] = tokens[1] if len(tokens) > 1 else None
             continue
         # 行動の処理
-        item = tuple(line[:-1].split(",")) # 行末の\nを削除
+        item = tuple(line.split(","))
         if len(item) <= 1:
             continue
 
