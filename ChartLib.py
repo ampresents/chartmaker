@@ -9,6 +9,39 @@ from PIL import Image, ImageDraw, ImageFont
 
 from mysite.settings import BASE_DIR
 
+BOSS_ICON_SIZE = 100 # ボスアイコンの一辺
+
+# ボスアイコンを読み込み、中央を正方形に切り出してから一辺 BOSS_ICON_SIZE に拡縮する
+# 透過 PNG の透明度も保つため、アルファを掛けた色 (float, 0-255) とアルファ (0-1) の組で返す
+def load_boss_icon(path, size=BOSS_ICON_SIZE):
+    # cv2.imread は Windows で日本語を含むパスを読めないため、バイト列からデコードする
+    img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+    if img is None:
+        raise ValueError("ボス画像を読み込めません: {}".format(path))
+    img = img.astype(np.float32) / (65535. if img.dtype == np.uint16 else 255.) * 255.
+    if img.ndim == 2:
+        img = img[:, :, None]
+    if img.shape[2] in (1, 2): # グレースケール（とそのアルファ）
+        img = np.concatenate([img[:, :, :1]] * 3 + [img[:, :, 1:]], axis=2)
+    color = img[:, :, :3]
+    alpha = img[:, :, 3:4] / 255. if img.shape[2] == 4 else np.ones_like(color[:, :, :1])
+    icon = np.concatenate([color * alpha, alpha], axis=2) # 縁が黒ずまないよう、アルファを掛けてから拡縮する
+    h, w = icon.shape[:2]
+    side = min(h, w)
+    top, left = (h - side) // 2, (w - side) // 2
+    icon = icon[top:top+side, left:left+side]
+    if side != size:
+        # 縮小は INTER_AREA が綺麗。小さい画像を拡大するときは INTER_CUBIC
+        interpolation = cv2.INTER_AREA if side > size else cv2.INTER_CUBIC
+        icon = np.clip(cv2.resize(icon, (size, size), interpolation=interpolation), 0., None)
+        icon[:, :, 3] = np.minimum(icon[:, :, 3], 1.)
+    return icon[:, :, :3], icon[:, :, 3:]
+
+# アイコンの透明部分を bgcolor (BGR) で塗って不透明な画像にする
+def flatten_boss_icon(icon, bgcolor):
+    color, alpha = icon
+    return np.clip(np.rint(color + np.array(bgcolor, dtype=np.float32) * (1. - alpha)), 0, 255).astype(np.uint8)
+
 # 構文解析
 def parse(text, item_num=5):
     chart = []
@@ -132,6 +165,48 @@ def generate_detail(commands, constant):
         detailjson.write(json.dumps(detail, indent=4, ensure_ascii=False))
     return detail
 
+# 時刻ラベル（戦闘開始・戦闘終了・戦闘時間・出撃可能）の表示位置
+# 既定の位置は各時刻の線に沿わせているが、戦闘が極端に短い・長いときや、ブロックが隙間なく続くときは
+# 文字が重なる。そこでプレイヤーごとにラベルを上から順に並べ、必要な間隔を保ちつつ
+# 既定の位置からのずれ（二乗和）が最小になるように押し広げる（間隔付きの Pool Adjacent Violators）
+LABEL_PAD = 2         # ラベル同士の縁取りの間に空ける隙間
+LABEL_TOP_LIMIT = 12  # 最初のラベルを戦闘開始 0 秒のときより上（ヘッダー側）に出さない
+
+def layout_time_labels(details):
+    columns = {}
+    for i, detail in enumerate(details):
+        labels = columns.setdefault(detail["raw_name"], [])
+        # (detail の番号, 種類, 既定のベースライン, 縁取り込みの上端までの高さ, 下端までの高さ)
+        labels.append((i, "battle_start", detail["battle_start"] + 12, 25, 4))
+        labels.append((i, "battle_end", detail["battle_end"] - 4, 25, 4))
+        if detail["play_time"] < 180:
+            labels.append((i, "play_time", detail["battle_end"] + 40, 28, 7))
+        labels.append((i, "cool_off", detail["cool_off"] - 12, 25, 4))
+
+    positions = [{} for _ in details]
+    for labels in columns.values():
+        # 隣どうしに必要な間隔を累積して差し引くと、制約は「値が単調非減少」になる
+        offsets = [0]
+        for above, below in zip(labels, labels[1:]):
+            offsets.append(offsets[-1] + above[4] + below[3] + LABEL_PAD)
+        # 順序が逆転している隣接グループを併合して平均をとる
+        groups = [] # [平均, 個数]
+        for label, offset in zip(labels, offsets):
+            groups.append([label[2] - offset, 1])
+            while len(groups) > 1 and groups[-2][0] > groups[-1][0]:
+                value, count = groups.pop()
+                groups[-1][0] = (groups[-1][0] * groups[-1][1] + value * count) / (groups[-1][1] + count)
+                groups[-1][1] += count
+        values = [value for value, count in groups for _ in range(count)]
+
+        prev_y, prev_offset = LABEL_TOP_LIMIT, None
+        for (i, kind, _, _, _), offset, value in zip(labels, offsets, values):
+            y = value + offset
+            y = max(y, prev_y if prev_offset is None else prev_y + offset - prev_offset)
+            positions[i][kind] = int(round(y))
+            prev_y, prev_offset = y, offset
+    return positions
+
 
 # 画像生成
 def generate_chart(src, dst, config, margin_top=160):
@@ -151,6 +226,17 @@ def generate_chart(src, dst, config, margin_top=160):
 
     base = np.full((6400, 220 + 20*246, 3), 0, dtype=np.uint8) # 縦広めにとっておく
     
+    # BOSSアイコン（サイズや縦横比が違っても 100×100 に揃える）
+    if "display_boss" in setting:
+        if setting.get("icon_bgcolor") not in (None, *color_table):
+            raise ValueError("::icon_bgcolor には {} のいずれかを指定してください".format("/".join(color_table)))
+        boss_images = {
+            "1st_boss"  :load_boss_icon(BASE_DIR + setting["image_1st"]),
+            "2nd_boss"  :load_boss_icon(BASE_DIR + setting["image_2nd"]),
+            "3rd_boss"  :load_boss_icon(BASE_DIR + setting["image_3rd"]),
+            "Realm_boss":load_boss_icon(BASE_DIR + setting["image_realm"])
+        }
+
     # 罫線の奥に表示したいもの
     for detail in generate_detail(commands, setting):
         player_name = detail["raw_name"]
@@ -184,13 +270,8 @@ def generate_chart(src, dst, config, margin_top=160):
             cv2.circle(base, center=(x+230, detail["battle_start"]+5+margin_top), radius=10, color=color_table[advantage[boss_color]], thickness=-1, lineType=cv2.LINE_4, shift=0)
         # BOSSアイコン
         if "display_boss" in setting:
-            boss_images = {
-                "1st_boss"  :cv2.imread(BASE_DIR + setting["image_1st"]),
-                "2nd_boss"  :cv2.imread(BASE_DIR + setting["image_2nd"]),
-                "3rd_boss"  :cv2.imread(BASE_DIR + setting["image_3rd"]),
-                "Realm_boss":cv2.imread(BASE_DIR + setting["image_realm"])
-            }
-            boss_img = boss_images[detail["action"]]
+            # 透明部分は、そのボスの属性色（::icon_bgcolor があればその色）で塗る
+            boss_img = flatten_boss_icon(boss_images[detail["action"]], color_table[setting.get("icon_bgcolor") or boss_color])
             base[detail["battle_start"]+margin_top:detail["battle_start"]+margin_top+boss_img.shape[0],x:x+boss_img.shape[1],:] = boss_img
 
     # 罫線
@@ -205,7 +286,9 @@ def generate_chart(src, dst, config, margin_top=160):
     cv2.putText(base, text="30:00", org=(246*20+120, margin_top+1810), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["grid_color"]["time30min"], thickness=2, lineType=cv2.LINE_4)
 
     # 罫線の手前に表示したいもの
-    for detail in generate_detail(commands, setting):
+    details = generate_detail(commands, setting)
+    label_y = layout_time_labels(details)
+    for detail, pos in zip(details, label_y):
         # プレイヤーを追加
         player_list.setdefault(detail["raw_name"], 120 + len(player_list)*246)
         x = player_list[detail["raw_name"]]
@@ -216,13 +299,13 @@ def generate_chart(src, dst, config, margin_top=160):
             cv2.putText(base, "{:2d}%".format(int(max(est_score, 0)*100)), org=(x+20, detail["battle_start"]+256+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=3.0, color=config["score_rate"]["bgcolor"], thickness=16, lineType=cv2.LINE_4)
             cv2.putText(base, "{:2d}%".format(int(max(est_score, 0)*100)), org=(x+20, detail["battle_start"]+256+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=3.0, color=config["score_rate"]["color"], thickness=8, lineType=cv2.LINE_4)
 
-        # 戦闘開始・戦闘終了・出撃可能
-        cv2.putText(base, text="{:02d}:{:02d}".format(detail["battle_start"]//60,detail["battle_start"]%60), org=(x+104, detail["battle_start"]+24+margin_top-12), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_start"]["bgcolor"], thickness=7, lineType=cv2.LINE_4)
-        cv2.putText(base, text="{:02d}:{:02d}".format(detail["battle_start"]//60,detail["battle_start"]%60), org=(x+104, detail["battle_start"]+24+margin_top-12), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_start"]["color"], thickness=2, lineType=cv2.LINE_4)
-        cv2.putText(base, text="{:02d}:{:02d}".format(detail["battle_end"]//60,detail["battle_end"]%60), org=(x+104, detail["battle_end"]-4+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_end"]["bgcolor"], thickness=7, lineType=cv2.LINE_4)
-        cv2.putText(base, text="{:02d}:{:02d}".format(detail["battle_end"]//60,detail["battle_end"]%60), org=(x+104, detail["battle_end"]-4+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_end"]["color"], thickness=2, lineType=cv2.LINE_4)
-        cv2.putText(base, text="{:02d}:{:02d}".format(detail["cool_off"]//60,detail["cool_off"]%60), org=(x+104, detail["cool_off"]+margin_top-12), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["cool_off"]["bgcolor"], thickness=7, lineType=cv2.LINE_4)
-        cv2.putText(base, text="{:02d}:{:02d}".format(detail["cool_off"]//60,detail["cool_off"]%60), org=(x+104, detail["cool_off"]+margin_top-12), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_end"]["color"], thickness=2, lineType=cv2.LINE_4)
+        # 戦闘開始・戦闘終了・出撃可能（重ならない位置は layout_time_labels で決める）
+        cv2.putText(base, text="{:02d}:{:02d}".format(detail["battle_start"]//60,detail["battle_start"]%60), org=(x+112, pos["battle_start"]+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_start"]["bgcolor"], thickness=7, lineType=cv2.LINE_4)
+        cv2.putText(base, text="{:02d}:{:02d}".format(detail["battle_start"]//60,detail["battle_start"]%60), org=(x+112, pos["battle_start"]+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_start"]["color"], thickness=2, lineType=cv2.LINE_4)
+        cv2.putText(base, text="{:02d}:{:02d}".format(detail["battle_end"]//60,detail["battle_end"]%60), org=(x+112, pos["battle_end"]+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_end"]["bgcolor"], thickness=7, lineType=cv2.LINE_4)
+        cv2.putText(base, text="{:02d}:{:02d}".format(detail["battle_end"]//60,detail["battle_end"]%60), org=(x+112, pos["battle_end"]+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_end"]["color"], thickness=2, lineType=cv2.LINE_4)
+        cv2.putText(base, text="{:02d}:{:02d}".format(detail["cool_off"]//60,detail["cool_off"]%60), org=(x+112, pos["cool_off"]+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["cool_off"]["bgcolor"], thickness=7, lineType=cv2.LINE_4)
+        cv2.putText(base, text="{:02d}:{:02d}".format(detail["cool_off"]//60,detail["cool_off"]%60), org=(x+112, pos["cool_off"]+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_end"]["color"], thickness=2, lineType=cv2.LINE_4)
         # LV
         cv2.putText(base, text="Lv{:02d}".format(detail["level"]), org=(x+12, detail["battle_start"]+margin_top+(128 if "display_boss" in setting else 28)), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["level"]["bgcolor"], thickness=12, lineType=cv2.LINE_4)
         cv2.putText(base, text="Lv{:02d}".format(detail["level"]), org=(x+12, detail["battle_start"]+margin_top+(128 if "display_boss" in setting else 28)), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["level"]["color"], thickness=2, lineType=cv2.LINE_4)
@@ -234,8 +317,8 @@ def generate_chart(src, dst, config, margin_top=160):
         if detail["play_time"] < 180:
             #text = "No limit" if detail["play_time"] > 190 else "{}sec".format(detail["play_time"])
             text = "{}sec".format(detail["play_time"])
-            cv2.putText(base, text, org=(x+108, detail["battle_end"]+40+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["play_time"]["bgcolor"], thickness=14, lineType=cv2.LINE_4)
-            cv2.putText(base, text, org=(x+108, detail["battle_end"]+40+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["play_time"]["color"], thickness=2, lineType=cv2.LINE_4)
+            cv2.putText(base, text, org=(x+112, pos["play_time"]+margin_top+8), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["play_time"]["bgcolor"], thickness=14, lineType=cv2.LINE_4)
+            cv2.putText(base, text, org=(x+112, pos["play_time"]+margin_top+8), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["play_time"]["color"], thickness=2, lineType=cv2.LINE_4)
   
     # スコア
     base[3840:] = 0
