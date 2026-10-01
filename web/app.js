@@ -6,7 +6,7 @@ const BOSSES = ["1st_boss", "2nd_boss", "3rd_boss", "Realm_boss"];
 const BOSS_LABEL = { "1st_boss": "1st", "2nd_boss": "2nd", "3rd_boss": "3rd", "Realm_boss": "Realm" };
 const IMAGE_KEYS = { "1st_boss": "image_1st", "2nd_boss": "image_2nd", "3rd_boss": "image_3rd", "Realm_boss": "image_realm" };
 const FLAGS = { display_team: "チーム名を表示", display_boss: "ボス画像を表示", display_party: "有利属性を表示", display_remaining: "時刻を残り時間で表示" };
-const KNOWN_KEYS = new Set(["comment", "timelag", ...BOSSES, ...Object.values(IMAGE_KEYS), ...Object.keys(FLAGS)]);
+const KNOWN_KEYS = new Set(["comment", "start_time", "timelag", ...BOSSES, ...Object.values(IMAGE_KEYS), ...Object.keys(FLAGS)]);
 const COOL = 300;          // クールタイム (ChartLib の cool_time)
 const CHART_SEC = 3600;    // 表示する時間
 const MAX_PLAYERS = 20;
@@ -61,6 +61,9 @@ function parseTime(v) {
   return null;
 }
 
+// ゲーム開始のローカル時刻 HH:MM（進捗管理で使う）
+const validStartTime = (v) => /^\d{1,2}:\d{2}$/.test(String(v ?? ""));
+
 function timelag(st = state) { return parseInt(st.constants.timelag) || 0; }
 function blockLen(st = state) { return timelag(st) + COOL; }
 
@@ -71,6 +74,7 @@ function defaultState() {
   return {
     constants: {
       comment: CONFIG.comment,
+      start_time: "",
       timelag: String(CONFIG.timelag),
       "1st_boss": "blue", "2nd_boss": "red", "3rd_boss": "green", "Realm_boss": "yellow",
       image_1st: img("/image/dragon_blue.png"), image_2nd: img("/image/dragon_red.png"),
@@ -128,6 +132,7 @@ function toText(st = state) {
     for (const p of named) out.push(`::${p.id}=${sanitize(p.name)}`);
     out.push(SEP);
   }
+  if (validStartTime(c.start_time)) out.push(`::start_time=${c.start_time}`);
   out.push(`::timelag=${timelag(st)}`);
   for (const b of BOSSES) out.push(`::${b}=${c[b]}`);
   out.push(SEP);
@@ -635,6 +640,11 @@ function renderSettings() {
   const parts = [
     h("h3", {}, "全般"),
     field("コメント", h("input", { value: c.comment, onchange: (e) => mutate(() => { c.comment = sanitize(e.target.value); }) })),
+    field("開始時刻", h("input", {
+      type: "time", value: validStartTime(c.start_time) ? c.start_time.padStart(5, "0") : "",
+      title: "ゲームの開始時刻。進捗管理で使います",
+      onchange: (e) => mutate(() => { c.start_time = e.target.value; }),
+    })),
     field("タイムラグ秒", h("input", {
       type: "number", min: 0, value: timelag(),
       title: "変更しても各戦闘の待機秒数は保たれます",
@@ -747,6 +757,11 @@ function bindUI() {
   $("#zoom").value = String(scale);
   $("#zoom").addEventListener("change", (e) => { scale = parseFloat(e.target.value); save(); render(); });
   $("#btn-render").addEventListener("click", renderImage);
+  // 進捗管理の作成画面へ今の作戦を引き継ぐ
+  $("#btn-tracker").addEventListener("click", () => {
+    try { localStorage.setItem("chartmaker.tracker.text", toText()); } catch (e) { /* 引き継げなくても画面は開く */ }
+    window.open("/tracker", "_blank");
+  });
   $("#btn-close-modal").addEventListener("click", () => { $("#modal").hidden = true; });
   $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") $("#modal").hidden = true; });
 

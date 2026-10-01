@@ -46,6 +46,26 @@ py -3.11 -m venv .venv
 - Timeline drag works like a sliding puzzle. A block moves alone through gaps and pushes touching neighbours. Pushed blocks stay where they were pushed.
 - The plan is to deploy publicly on Google Cloud (Cloud Run with gunicorn). Keep the server stateless.
 
+## Progress tracker (`/tracker`, `web/tracker.*`, `store.py`)
+
+It replaces the old in-game app that read `cleartime.json` and `detail.json`. Operators press a kill button for each boss, and every device showing the same URL stays in sync.
+
+- The editor's 進捗管理 ("progress tracking") button hands the current `toText()` to `/tracker` through `localStorage` (`chartmaker.tracker.text`). The setup screen reads the date and `::start_time`, then calls `POST /api/sessions {text, start_epoch_ms}` and navigates to `/tracker/<id>`. The random 128-bit id is the only access control.
+- The server builds the plan once: `cleartime` comes from `calc_level` (index = floor; index 0 is the sentinel; trailing empty floors are trimmed), and `detail` is a trimmed `generate_detail`. Boss images that don't exist locally are dropped, because `validate(..., check_images=False)` skips the image check.
+- Endpoints:
+  - `GET /api/sessions/<id>?since=<version>` returns only `{version, server_now}` when nothing has changed. Clients poll every second and use `server_now` to correct their clock.
+  - `POST .../kill {floor, boss}` and `POST .../undo {count}` are validated on the server with the `calc_level` rules: floor = 1 + Realm kills, and Realm is allowed only after 1st/2nd/3rd are killed on that floor. A stale or duplicate press returns 409.
+- `store.py`: `MemoryStore` is the default and is lost on restart. Sessions expire after 24h. With `STORE=firestore`, `FirestoreStore` is used (collection `tracker_sessions`, updates in a transaction) so that several Cloud Run instances share the state.
+- 挑戦中 (fighting) and 次に出撃 (next to sortie) follow the kill buttons, not the clock. `schedule()` in `tracker.js` replays each player's battles in plan order. Each battle's actual sortie time is the latest of these:
+  - its planned `push_start`
+  - the previous battle's actual push + timelag + 300 (the cooldown)
+  - the kill time of the previous battle's boss
+  - the time its own boss opened: the floor was reached (the previous floor's Realm kill), and for Realm, all 3 regular bosses on that floor were killed
+
+  It uses the `level` field in `detail` to know the floor, so a delay carries over to every later battle. A battle stays 挑戦中 until its boss's kill button is pressed, and shows `N秒 超過` (N s over) once it passes its planned duration. A battle whose sortie time has passed but whose gate is still closed shows 待機中 (waiting) in 次に出撃. A battle whose boss was killed before it sortied is skipped. 次に出撃 shows only one entry per player and leaves out players who are fighting.
+- "作戦との差" (difference from the plan) is the larger of: the last kill's delay against `cleartime[floor][boss]`, and the overdue time of any pending boss on the current floor. Late is red and early is green. The score is the sum of `est_score` over battles with `battle_end <= now`.
+- Quirk inherited from `calc_level`: a regular-boss battle with `push_start == 0` is not counted toward 1F (`push_start > clear_time[0]["Realm_boss"]`), so a plan whose first pushes are at second 0 shows "作戦に予定なし" ("not in the plan") for 1F.
+
 ## Input schedule format (`src/*.txt`, parsed by `parse`)
 
 - A line starting with `#` is a comment.
@@ -54,6 +74,7 @@ py -3.11 -m venv .venv
   - The flags `display_party`, `display_boss`, `display_team`, and `display_remaining` are checked by presence only. `display_remaining` makes the per-battle time labels show the time left in the 60 minutes instead of the elapsed time. `format_clock` renders it, and shows `-mm:ss` past the end. The GUI's `clock()` mirrors this, including the timeline axis and the push-time input.
   - `image_1st`, `image_2nd`, `image_3rd`, and `image_realm` give the boss icon paths used when `display_boss` is set, for example `/image/LI_3009011.png`. The images can be any size or aspect ratio: `load_boss_icon` crops the centre square and resizes it to 100×100, keeping the alpha channel (premultiplied, so edges don't darken). `flatten_boss_icon` fills transparent areas with that battle's boss element color from `color_table`; the optional `::icon_bgcolor=<color_table name>` forces a single color for every icon.
   - `::<player_id>=<display name>` sets a player's display name.
+  - `::start_time=HH:MM` is the game's local start time, used only by the progress tracker. ChartLib ignores it, and the PNG is unchanged.
 - An action line has the form `player_id,wait_seconds,boss,battle_seconds[,score_rate]`.
   - `boss` must be one of `1st_boss`, `2nd_boss`, `3rd_boss`, or `Realm_boss`.
   - `wait_seconds` is added to that player's running clock before the push. Each push then advances the clock by `timelag + 300` (the cooldown).
