@@ -455,7 +455,7 @@ function render() {
   });
 
   if (state.players.length < MAX_PLAYERS) {
-    cols.push(h("div", { class: "col add" }, h("button", { title: "プレイヤーを追加", onclick: () => { selection = null; renderSide(); switchTab("select"); $("#add-id")?.focus(); } }, "＋")));
+    cols.push(h("div", { class: "col add" }, h("button", { title: "プレイヤーを追加", onclick: () => { selection = null; renderSide(); switchTab("select"); $("#add-name")?.focus(); } }, "＋")));
   }
   tl.replaceChildren(...cols);
 }
