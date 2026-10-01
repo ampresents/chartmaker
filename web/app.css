@@ -116,6 +116,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 .block .resize { position: absolute; left: 0; right: 0; bottom: -3px; height: 7px; cursor: ns-resize; }
 .block .info { position: absolute; left: 4px; right: 2px; pointer-events: none; font-size: 11px; line-height: 13px;
   text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 3px #000; white-space: nowrap; }
+.block .info .time { font-weight: bold; }
 .block .info .lv { color: rgb(0, 255, 255); }
 .block .info .score { color: rgb(60, 255, 255); }
 .block .info .rate { color: #fff; font-weight: bold; }
