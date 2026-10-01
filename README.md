@@ -86,6 +86,7 @@ bash deploy/setup.sh
 - Firestore（Native モード、`asia-northeast1`）を作成。進捗管理のセッションを保存する
 - `tracker_sessions` の `expire_at` に TTL を設定（24 時間を過ぎたセッションを自動削除）
 - Cloud Run 用サービスアカウント `chartmaker-run` を作成（権限は Firestore の読み書きのみ）
+- 作戦 txt の保存先バケット（既定 `chartmaker-output`、`PLAN_BUCKET=<名前>` で変更可）が無ければ作成し、`chartmaker-run` に一覧と作成だけを許可（上書き・削除はできない）
 
 「setup 完了」と出れば成功です。
 
@@ -131,6 +132,7 @@ bash deploy/deploy.sh
 | `--concurrency` | 32 | 1 台が同時に受けるリクエスト数 |
 | CPU / メモリ | 1 / 1GiB | 画像生成 1 回で数百 MB 使う |
 | `STORE` | `firestore` | 進捗管理のセッションを Firestore に保存（再起動・複数台でも共有） |
+| `PLAN_BUCKET` | `chartmaker-output` | 画像生成した作戦 txt の保存先（第 5 章）。`PLAN_BUCKET= bash deploy/deploy.sh` で保存しない |
 
 - ビルドしたイメージ（Artifact Registry）は新しい 2 つだけ残し、アップロードしたソースの zip（バケット `run-sources-<プロジェクトID>-asia-northeast1`）は 7 日で自動削除する設定も同時に入れています。どちらも保管料を無料枠に収めるため
 - アップロードしないファイルは `.dockerignore` で指定しています（`.gcloudignore` はそれを読み込むだけ）。`src/` `output/` `deploy/` `.venv/` などは送られません
@@ -158,6 +160,21 @@ bash deploy/deploy.sh
 - 画像生成は同時に 2 つまで。20 秒待っても空かなければ 503「混み合っています」
 - 進捗管理の画面は毎秒サーバーに問い合わせるが、Firestore の読み取りは 1 台・1 セッションあたり毎秒 1 回にまとめている
 
+### 作戦 txt の保存
+
+画像生成に成功するたびに、その作戦の txt を `gs://<PLAN_BUCKET>/plans/` に保存します。
+
+```
+plans/20261001_003_47040000_44940000.txt
+      日付      連番  Max スコア  Est スコア
+```
+
+- 日付は日本時間。連番は日ごとに 001 から振り、既存のファイルは上書きしない
+- スコアは画像下部の `Max`（全戦闘 100% の合計）と `Est`（スコア率を掛けた見積もり）
+- 同じ作戦でも画像生成するたびに別ファイルとして保存される
+- 保存に失敗しても画像生成は失敗にならない（ログに「作戦の保存に失敗しました」と出る）
+- ローカル（`PLAN_BUCKET` 未設定）では保存しない
+
 ---
 
 ## 6. 運用でよく使うコマンド
@@ -172,6 +189,10 @@ gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.serv
 
 # 課金停止関数のログ（予算通知が届いているかの確認）
 gcloud functions logs read stop-billing --project="$PROJECT" --region=asia-northeast1 --gen2
+
+# 保存した作戦 txt の一覧と、手元へのコピー
+gcloud storage ls gs://chartmaker-output/plans/
+gcloud storage cp -r gs://chartmaker-output/plans ./plans
 
 # リビジョン一覧と、1 つ前のリビジョンへの切り戻し
 gcloud run revisions list --service=chartmaker --project="$PROJECT" --region=asia-northeast1

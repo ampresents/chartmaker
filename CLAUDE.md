@@ -35,7 +35,7 @@ py -3.11 -m venv .venv
   - `GET /api/config` returns config.json and the list of `image/*.png` (as `/image/<name>` paths).
   - `POST /api/parse {text}` returns `ChartLib.parse`.
   - `POST /api/detail {text}` returns `generate_detail`, which the GUI uses for Lv/score.
-  - `POST /api/render {text}` writes the txt to a temp dir and calls `generate_chart`, returning a PNG.
+  - `POST /api/render {text}` writes the txt to a temp dir and calls `generate_chart`, returning a PNG. When `PLAN_BUCKET` is set, it then saves the txt to that Cloud Storage bucket as `plans/YYYYMMDD_<seq>_<Max>_<Est>.txt` (`archive.py`; JST date, a 3-digit sequence per day, the chart footer's Max/Est totals). A failed save is only logged. Without `PLAN_BUCKET` (local runs) nothing is saved.
   - Validation errors are returned as 400 `{error}`.
 - `web/app.js` (vanilla JS, no build step) stores each action as an absolute start second. It converts back to relative `wait_seconds` in `toText()`, and the output must stay parseable by the unchanged `parse`.
 - Shared constants: `ChartLib.py` defines `BOSSES`, `REGULAR_BOSSES`, `IMAGE_KEYS`, `COOL_TIME` and `MAX_PLAYERS`, and `app.py` imports them. The browser side cannot import Python, so `web/common.js` mirrors `BOSSES`, `BOSS_LABEL`, `COOL_TIME` and `CHART_SEC` and is loaded before `app.js` and `tracker.js`. Keep the two in sync. Top-level `const`s in these classic scripts share one scope, so never redeclare a `common.js` name.
@@ -69,9 +69,9 @@ It replaces the old in-game app that read `cleartime.json` and `detail.json`. Op
 ## Deploying to Cloud Run (`Dockerfile`, `deploy/`)
 
 Run these from the repo root in Git Bash, with `PROJECT=<id>` set:
-- `deploy/setup.sh` runs once. It enables the APIs, creates Firestore with a TTL on `expire_at`, and creates the `chartmaker-run` service account with `roles/datastore.user`.
+- `deploy/setup.sh` runs once. It enables the APIs, creates Firestore with a TTL on `expire_at`, and creates the `chartmaker-run` service account with `roles/datastore.user`. It also creates the plan bucket (`PLAN_BUCKET`, default `chartmaker-output`) if missing and grants the service account only list + create on it (`objectViewer`, `objectCreator`), so the app cannot overwrite or delete saved plans.
 - `.gcloudignore` only does `#!include:.dockerignore`, so edit the exclusions in `.dockerignore`.
-- `deploy/deploy.sh` runs `gcloud run deploy --source .`. It uses `--max-instances` (default 1, which is the main cost cap), `--min-instances=0`, `--concurrency=32`, and `STORE=firestore`. It also sets an Artifact Registry cleanup policy (keep the 2 newest images) and a lifecycle rule that deletes the uploaded source zips in `gs://run-sources-<project>-<region>` after 7 days.
+- `deploy/deploy.sh` runs `gcloud run deploy --source .`. It uses `--max-instances` (default 1, which is the main cost cap), `--min-instances=0`, `--concurrency=32`, `STORE=firestore`, and `PLAN_BUCKET` (default `chartmaker-output`; `PLAN_BUCKET=` disables saving). It also sets an Artifact Registry cleanup policy (keep the 2 newest images) and a lifecycle rule that deletes the uploaded source zips in `gs://run-sources-<project>-<region>` after 7 days.
 - `deploy/budget.sh` creates a budget (default `BUDGET=1000JPY`) that publishes to Pub/Sub topic `billing-alerts`. The `stop-billing` function (`deploy/billing_guard/`) unlinks the project's billing account once cost exceeds the budget. Set `DRY_RUN=1` to deploy it in log-only mode.
 
 The cost guards inside the app are per-process:

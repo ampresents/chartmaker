@@ -14,6 +14,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from ChartLib import (BASE_DIR, BOSSES, REGULAR_BOSSES, IMAGE_KEYS, COOL_TIME, MAX_PLAYERS,
                       parse, generate_detail, generate_chart, calc_level)
 from store import make_store, NotFound
+from archive import make_plan_archive
 
 MAX_TEXT = 200_000
 
@@ -34,6 +35,7 @@ app.config["MAX_CONTENT_LENGTH"] = MAX_TEXT * 4
 app.json.sort_keys = False
 
 store = make_store()
+plan_archive = make_plan_archive()
 
 
 def load_config():
@@ -195,14 +197,27 @@ def api_detail():
 def api_render():
     text, commands, constants = parse_request()
     config = load_config()
-    validate(commands, constants, config)
+    setting = validate(commands, constants, config)
     if not render_slots.acquire(timeout=RENDER_WAIT):
         raise Busy()
     try:
         png = render_png(text, config)
     finally:
         render_slots.release()
+    archive_plan(text, commands, setting)
     return app.response_class(png, mimetype="image/png")
+
+
+def archive_plan(text, commands, setting):
+    """画像生成できた作戦 txt を保存する。保存に失敗しても画像は返す"""
+    if plan_archive is None:
+        return
+    try:
+        detail = generate_detail(commands, setting)
+        name = plan_archive.save(text, sum(d["score"] for d in detail), sum(d["est_score"] for d in detail))
+        print("作戦を保存しました:", name)
+    except Exception as e:
+        print("作戦の保存に失敗しました:", repr(e))
 
 
 def render_png(text, config):
