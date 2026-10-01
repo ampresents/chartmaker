@@ -1,0 +1,2 @@
+# deploy/*.sh を bash で動かすため、Windows でも改行を LF のまま取り出す
+*.sh text eol=lf
