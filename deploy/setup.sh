@@ -4,11 +4,12 @@
 set -euo pipefail
 : "${PROJECT:?PROJECT=<プロジェクトID> を指定してください}"
 REGION="${REGION:-asia-northeast1}"
+PLAN_BUCKET="${PLAN_BUCKET:-chartmaker-output}"  # 画像生成した作戦 txt の保存先
 
 gcloud config set project "$PROJECT"
 gcloud services enable \
   run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com \
-  firestore.googleapis.com
+  firestore.googleapis.com storage.googleapis.com
 
 # 進捗管理のセッションを置く Firestore (Native モード)
 if ! gcloud firestore databases describe --database='(default)' >/dev/null 2>&1; then
@@ -24,4 +25,13 @@ if ! gcloud iam service-accounts describe "$SA" >/dev/null 2>&1; then
 fi
 gcloud projects add-iam-policy-binding "$PROJECT" \
   --member="serviceAccount:$SA" --role=roles/datastore.user --condition=None >/dev/null
+
+# 作戦 txt の保存先。連番を決めるため一覧と作成だけ許可する (上書き・削除はできない)
+if ! gcloud storage buckets describe "gs://$PLAN_BUCKET" >/dev/null 2>&1; then
+  gcloud storage buckets create "gs://$PLAN_BUCKET" --location="$REGION" --uniform-bucket-level-access
+fi
+for role in roles/storage.objectViewer roles/storage.objectCreator; do
+  gcloud storage buckets add-iam-policy-binding "gs://$PLAN_BUCKET" \
+    --member="serviceAccount:$SA" --role="$role" >/dev/null
+done
 echo "setup 完了"

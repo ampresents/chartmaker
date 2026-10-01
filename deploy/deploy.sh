@@ -5,6 +5,7 @@ set -euo pipefail
 : "${PROJECT:?PROJECT=<プロジェクトID> を指定してください}"
 REGION="${REGION:-asia-northeast1}"
 MAX_INSTANCES="${MAX_INSTANCES:-1}"   # 料金の上限を決める一番大事な値
+PLAN_BUCKET="${PLAN_BUCKET-chartmaker-output}"  # 作戦 txt の保存先。PLAN_BUCKET= (空) で保存しない
 
 gcloud run deploy chartmaker \
   --project="$PROJECT" --region="$REGION" --source=. \
@@ -13,7 +14,7 @@ gcloud run deploy chartmaker \
   --min-instances=0 --max-instances="$MAX_INSTANCES" \
   --concurrency=32 --cpu=1 --memory=1Gi --timeout=60 \
   --cpu-throttling \
-  --set-env-vars=STORE=firestore
+  --set-env-vars="STORE=firestore,PLAN_BUCKET=$PLAN_BUCKET"
 
 # --source でビルドしたイメージは Artifact Registry に溜まり、保管料がかかる。新しい 2 つだけ残す
 POLICY="$(mktemp)"
