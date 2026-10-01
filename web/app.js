@@ -356,6 +356,7 @@ async function renderImage() {
     if (old.startsWith("blob:")) URL.revokeObjectURL(old);
     $("#preview").src = url;
     $("#download-png").href = url;
+    $("#download-png").download = `${dateStem()}.png`;
     $("#modal").hidden = false;
     showStatus(null);
   } catch (e) {
@@ -718,6 +719,12 @@ function switchTab(name) {
 
 // ---------------------------------------------------------------- 初期化
 
+// 保存ファイル名の日付部分（YYYYMMDD）
+function dateStem() {
+  const d = new Date();
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function download(name, blob) {
   const url = URL.createObjectURL(blob);
   const a = h("a", { href: url, download: name });
@@ -757,9 +764,7 @@ function bindUI() {
   });
   $("#btn-copy").addEventListener("click", () => navigator.clipboard.writeText(text.value));
   $("#btn-save-text").addEventListener("click", () => {
-    const d = new Date();
-    const name = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}.txt`;
-    download(name, new Blob([text.value], { type: "text/plain" }));
+    download(`${dateStem()}.txt`, new Blob([text.value], { type: "text/plain" }));
   });
 
   bindSplitter();
