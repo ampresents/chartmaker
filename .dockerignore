@@ -1,0 +1,12 @@
+# docker build でコンテナに入れないもの
+.git/
+.gitignore
+.gcloudignore
+.venv/
+__pycache__/
+src/
+output/
+deploy/
+*.ipynb
+README.md
+CLAUDE.md
