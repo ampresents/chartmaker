@@ -60,8 +60,19 @@ body.resizing { cursor: col-resize; user-select: none; }
 .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .field { display: grid; grid-template-columns: 90px 1fr; gap: 6px; align-items: center; }
 .field input, .field select { width: 100%; }
-.boss-row { display: grid; grid-template-columns: 56px 90px 1fr 36px; gap: 6px; align-items: center; }
-.boss-row img { width: 36px; height: 36px; object-fit: cover; border-radius: 4px; background: #000; }
+.boss-row { display: grid; grid-template-columns: 56px 90px 1fr; gap: 6px; align-items: center; }
+/* ボス画像。画像生成と同じく中央を正方形に切り出し、透過部分は属性色で見せる */
+.icon-thumb { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 3px; }
+.icon-pick { display: flex; align-items: center; gap: 8px; padding: 3px; min-width: 0; text-align: left; }
+.icon-pick .icon-thumb { width: 44px; flex: none; }
+.icon-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+#picker { position: fixed; inset: 0; background: #000b; z-index: 30; display: flex; padding: 24px; }
+.picker-box { flex: 1; max-width: 1100px; margin: 0 auto; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; display: flex; flex-direction: column; gap: 10px; padding: 12px; min-height: 0; }
+.icon-grid { flex: 1; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px; align-content: start; }
+.icon-tile { display: block; padding: 4px; min-width: 0; }
+.icon-tile.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: middle; margin-right: 4px; }
 #text { flex: 1; min-height: 300px; font-family: Consolas, "MS Gothic", monospace; font-size: 12px; resize: none; white-space: pre; }
 #text.dirty { border-color: var(--accent); }
