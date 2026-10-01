@@ -2,14 +2,10 @@
 // chartmaker 進捗管理
 // サーバーのセッション (作戦 plan と討伐イベント events) を 1 秒ごとに取得し、表示はすべて手元で計算する。
 
-const BOSSES = ["1st_boss", "2nd_boss", "3rd_boss", "Realm_boss"];
 const REGULAR = BOSSES.slice(0, 3);
-const BOSS_LABEL = { "1st_boss": "1st", "2nd_boss": "2nd", "3rd_boss": "3rd", "Realm_boss": "Realm" };
-const CHART_SEC = 3600;
 const POLL_MS = 1000;
 const TICK_MS = 200;
 const NEXT_COUNT = 8;
-const COOL_TIME = 300;     // 出撃からクールタイム明けまで (timelag を除く)
 const HANDOFF_KEY = "chartmaker.tracker.text";
 
 let plan = null;

@@ -11,6 +11,11 @@ from PIL import Image, ImageDraw, ImageFont
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 BOSS_ICON_SIZE = 100 # ボスアイコンの一辺
+BOSSES = ("1st_boss", "2nd_boss", "3rd_boss", "Realm_boss")
+REGULAR_BOSSES = BOSSES[:3] # 階層ごとに 3 体とも倒すと Realm に挑める
+IMAGE_KEYS = dict(zip(BOSSES, ("image_1st", "image_2nd", "image_3rd", "image_realm")))
+COOL_TIME = 300 # 出撃からクールタイム明けまで (timelag を除く)
+MAX_PLAYERS = 20 # 画像の列数
 
 # ボスアイコンを読み込み、中央を正方形に切り出してから一辺 BOSS_ICON_SIZE に拡縮する
 # 透過 PNG の透明度も保つため、アルファを掛けた色 (float, 0-255) とアルファ (0-1) の組で返す
@@ -73,7 +78,7 @@ def parse(text):
         if len(item) < 5:
             raise Exception("[line:{}] {}".format(i+1, line))
 
-        if item[2] in ("1st_boss", "2nd_boss", "3rd_boss", "Realm_boss"):
+        if item[2] in BOSSES:
             chart.append(item[:5])
         else:
             raise Exception("[line:{}] {}".format(i+1, line))
@@ -106,12 +111,12 @@ def calc_level(commands, timelag, cool_time):
         
         current_pos[player_name] += timelag + cool_time
 
-    clear_time = [{"1st_boss":0, "2nd_boss":0, "3rd_boss":0, "Realm_boss":0}] + [{"1st_boss":None, "2nd_boss":None, "3rd_boss":None, "Realm_boss":None} for _ in range(50)]
+    clear_time = [dict.fromkeys(BOSSES, 0)] + [dict.fromkeys(BOSSES) for _ in range(50)]
     current_floor = 1
 
     for push_start, battle_end, action in sorted(new_info):
         if action == "Realm_boss":
-            if None in (clear_time[current_floor]["1st_boss"], clear_time[current_floor]["2nd_boss"], clear_time[current_floor]["3rd_boss"]):
+            if None in (clear_time[current_floor][b] for b in REGULAR_BOSSES):
                 clear_time[current_floor-1][action] = min(clear_time[current_floor-1][action], battle_end)
             else:
                 clear_time[current_floor][action] = battle_end if clear_time[current_floor][action] is None else min(clear_time[current_floor][action], battle_end)
@@ -128,7 +133,7 @@ def calc_level(commands, timelag, cool_time):
 
 # 情報変換
 def generate_detail(commands, constant):
-    cool_time = 300
+    cool_time = COOL_TIME
     detail = []
     current_pos = {}
     timelag = int(constant["timelag"])
@@ -227,18 +232,13 @@ def generate_chart(src, dst, config, margin_top=160):
     player_scores = {}
     min_scores = {}
 
-    base = np.full((6400, 220 + 20*246, 3), 0, dtype=np.uint8) # 縦広めにとっておく
+    base = np.full((6400, 220 + MAX_PLAYERS*246, 3), 0, dtype=np.uint8) # 縦広めにとっておく
     
     # BOSSアイコン（サイズや縦横比が違っても 100×100 に揃える）
     if "display_boss" in setting:
         if setting.get("icon_bgcolor") not in (None, *color_table):
             raise ValueError("::icon_bgcolor には {} のいずれかを指定してください".format("/".join(color_table)))
-        boss_images = {
-            "1st_boss"  :load_boss_icon(BASE_DIR + setting["image_1st"]),
-            "2nd_boss"  :load_boss_icon(BASE_DIR + setting["image_2nd"]),
-            "3rd_boss"  :load_boss_icon(BASE_DIR + setting["image_3rd"]),
-            "Realm_boss":load_boss_icon(BASE_DIR + setting["image_realm"])
-        }
+        boss_images = {boss: load_boss_icon(BASE_DIR + setting[key]) for boss, key in IMAGE_KEYS.items()}
 
     details = generate_detail(commands, setting)
 
@@ -279,15 +279,15 @@ def generate_chart(src, dst, config, margin_top=160):
             base[detail["battle_start"]+margin_top:detail["battle_start"]+margin_top+boss_img.shape[0],x:x+boss_img.shape[1],:] = boss_img
 
     # 罫線
-    cv2.line(base, pt1=(100, margin_top),        pt2=(20*246+120, margin_top),        color=config["grid_color"]["start"], thickness=3, lineType=cv2.LINE_4)
-    cv2.line(base, pt1=(100, margin_top + 3600), pt2=(20*246+120, margin_top + 3600), color=config["grid_color"]["end"],   thickness=3, lineType=cv2.LINE_4)
+    cv2.line(base, pt1=(100, margin_top),        pt2=(MAX_PLAYERS*246+120, margin_top),        color=config["grid_color"]["start"], thickness=3, lineType=cv2.LINE_4)
+    cv2.line(base, pt1=(100, margin_top + 3600), pt2=(MAX_PLAYERS*246+120, margin_top + 3600), color=config["grid_color"]["end"],   thickness=3, lineType=cv2.LINE_4)
     for y in range(margin_top, 3600+margin_top+1, 60):
-        cv2.line(base, pt1=(100, y), pt2=(20*246+120, y), color=config["grid_color"]["even"] if (y-margin_top)%120==0 else config["grid_color"]["odd"], thickness=2 if (y-margin_top)%300==0 else 1, lineType=cv2.LINE_4)
+        cv2.line(base, pt1=(100, y), pt2=(MAX_PLAYERS*246+120, y), color=config["grid_color"]["even"] if (y-margin_top)%120==0 else config["grid_color"]["odd"], thickness=2 if (y-margin_top)%300==0 else 1, lineType=cv2.LINE_4)
         cv2.putText(base, text="{:02d}:00".format((3600+margin_top-y)//60), org=(10, y+10),         fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["grid_color"]["time"], thickness=2, lineType=cv2.LINE_4)
-        cv2.putText(base, text="{:02d}:00".format((margin_top+y-300)//60),  org=(246*20+120, y+10), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["grid_color"]["time"], thickness=2, lineType=cv2.LINE_4)
-    cv2.line(base, pt1=(100, margin_top+1800), pt2=(20*246+120, margin_top+1800), color=config["grid_color"]["30min"], thickness=3, lineType=cv2.LINE_4)
+        cv2.putText(base, text="{:02d}:00".format((margin_top+y-300)//60),  org=(246*MAX_PLAYERS+120, y+10), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["grid_color"]["time"], thickness=2, lineType=cv2.LINE_4)
+    cv2.line(base, pt1=(100, margin_top+1800), pt2=(MAX_PLAYERS*246+120, margin_top+1800), color=config["grid_color"]["30min"], thickness=3, lineType=cv2.LINE_4)
     cv2.putText(base, text="30:00", org=(10, margin_top+1810), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["grid_color"]["time30min"], thickness=2, lineType=cv2.LINE_4)
-    cv2.putText(base, text="30:00", org=(246*20+120, margin_top+1810), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["grid_color"]["time30min"], thickness=2, lineType=cv2.LINE_4)
+    cv2.putText(base, text="30:00", org=(246*MAX_PLAYERS+120, margin_top+1810), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["grid_color"]["time30min"], thickness=2, lineType=cv2.LINE_4)
 
     # 罫線の手前に表示したいもの
     label_y = layout_time_labels(details)

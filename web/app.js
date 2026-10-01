@@ -2,13 +2,9 @@
 // chartmaker GUI
 // 状態は絶対秒 (push_start) で持ち、txt を出力するときに待機秒数 (相対) へ変換する。
 
-const BOSSES = ["1st_boss", "2nd_boss", "3rd_boss", "Realm_boss"];
-const BOSS_LABEL = { "1st_boss": "1st", "2nd_boss": "2nd", "3rd_boss": "3rd", "Realm_boss": "Realm" };
 const IMAGE_KEYS = { "1st_boss": "image_1st", "2nd_boss": "image_2nd", "3rd_boss": "image_3rd", "Realm_boss": "image_realm" };
 const FLAGS = { display_team: "チーム名を表示", display_boss: "ボス画像を表示", display_party: "有利属性を表示", display_remaining: "時刻を残り時間で表示" };
 const KNOWN_KEYS = new Set(["comment", "start_time", "timelag", ...BOSSES, ...Object.values(IMAGE_KEYS), ...Object.keys(FLAGS)]);
-const COOL = 300;          // クールタイム (ChartLib の cool_time)
-const CHART_SEC = 3600;    // 表示する時間
 const MAX_PLAYERS = 20;
 const MAX_BATTLE = 300;
 const STORAGE_KEY = "chartmaker.draft.v1";
@@ -65,7 +61,7 @@ function parseTime(v) {
 const validStartTime = (v) => /^\d{1,2}:\d{2}$/.test(String(v ?? ""));
 
 function timelag(st = state) { return parseInt(st.constants.timelag) || 0; }
-function blockLen(st = state) { return timelag(st) + COOL; }
+function blockLen(st = state) { return timelag(st) + COOL_TIME; }
 
 // ---------------------------------------------------------------- 状態
 
