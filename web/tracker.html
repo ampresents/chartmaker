@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Armageddon Manager</title>
+<link rel="icon" type="image/png" href="/icon.png">
+<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/tracker.css">
+</head>
+<body>
+<header class="toolbar">
+  <h1><a href="/"><img src="/logo.png" alt="ChartMaker" width="380" height="72"></a></h1>
+  <b>進捗管理</b>
+  <span id="comment" class="muted"></span>
+  <span class="grow"></span>
+  <span id="sync" class="muted"></span>
+  <button id="btn-share" hidden title="このページの URL をコピーして他の操作者に共有">URL をコピー</button>
+</header>
+
+<div id="status" hidden></div>
+
+<section id="setup" hidden>
+  <div class="setup-box">
+    <h2>セッションを作成</h2>
+    <p class="hint">作戦の txt を読み込み、ゲームの開始日時を確認して作成します。作成したページの URL を共有すると、複数の端末で同じ進捗を操作できます。</p>
+    <div class="row">
+      <label class="btn">txtを開く<input id="setup-file" type="file" accept=".txt,text/plain" hidden></label>
+      <span class="hint">または下に貼り付け</span>
+    </div>
+    <textarea id="setup-text" spellcheck="false"></textarea>
+    <div class="row">
+      <label>開始日 <input id="setup-date" type="date"></label>
+      <label>開始時刻 <input id="setup-time" type="time"></label>
+      <span class="grow"></span>
+      <button id="btn-create" class="primary">作成</button>
+    </div>
+  </div>
+</section>
+
+<main id="board" hidden>
+  <section class="stats">
+    <div class="stat"><div class="label">現在の階層</div><div class="value" id="floor"></div></div>
+    <div class="stat"><div class="label" id="clock-label">残り時間</div><div class="value" id="clock"></div><div class="sub" id="clock-sub"></div></div>
+    <div class="stat" id="delay-box"><div class="label">作戦との差</div><div class="value" id="delay"></div><div class="sub" id="delay-sub"></div></div>
+    <div class="stat"><div class="label">予定スコア</div><div class="value" id="score"></div><div class="sub" id="score-sub"></div></div>
+  </section>
+
+  <section class="bosses" id="bosses"></section>
+
+  <section class="lists">
+    <div class="list-box">
+      <h3>挑戦中</h3>
+      <div id="fighting" class="fighting"></div>
+    </div>
+    <div class="list-box next-box">
+      <h3>次に出撃</h3>
+      <div id="next" class="next"></div>
+    </div>
+  </section>
+
+  <section class="history-box">
+    <div class="row">
+      <h3>討伐履歴</h3>
+      <span class="grow"></span>
+      <button id="btn-undo" class="danger">直前の討伐を取り消す</button>
+    </div>
+    <div id="history" class="history"></div>
+  </section>
+</main>
+
+<script src="/static/tracker.js"></script>
+</body>
+</html>

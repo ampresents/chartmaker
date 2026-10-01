@@ -3,3 +3,4 @@ numpy
 opencv-python-headless<5
 Pillow<10
 gunicorn
+google-cloud-firestore

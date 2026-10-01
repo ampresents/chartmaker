@@ -1,0 +1,75 @@
+/* 進捗管理。app.css の色と部品を土台にする */
+:root {
+  --ok: #3ccf6e;
+  --ok-bg: #0f2a19;
+  --late: #ff5a5a;
+  --late-bg: #3a1414;
+}
+.muted { color: var(--muted); }
+.ok-text { color: var(--ok); }
+.late-text { color: var(--late); }
+.toolbar a { line-height: 0; }
+#status.ok { background: var(--ok-bg); color: #c8ffd8; border-bottom-color: var(--ok); }
+
+/* 作成画面 */
+#setup { flex: 1; overflow: auto; padding: 24px 16px; }
+#setup[hidden] { display: none; }
+.setup-box { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+.setup-box h2 { margin: 0; color: var(--accent); font-size: 18px; }
+#setup-text { min-height: 360px; font-family: Consolas, "MS Gothic", monospace; font-size: 12px; white-space: pre; resize: vertical; }
+
+/* ボード。順調なら緑、遅れていれば赤をアクセントにする */
+#board { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 14px; padding: 14px 16px;
+  --state: var(--ok); --state-bg: var(--ok-bg); }
+#board[hidden] { display: none; }
+body.late #board { --state: var(--late); --state-bg: var(--late-bg); }
+body.ontime .toolbar { box-shadow: inset 0 -3px var(--ok); }
+body.late .toolbar { box-shadow: inset 0 -3px var(--late); }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+.stat .label { color: var(--muted); font-size: 13px; }
+.stat .value { font-size: 40px; font-weight: bold; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.stat .sub { color: var(--muted); font-size: 12px; }
+#floor { color: var(--accent); }
+#delay-box { background: var(--state-bg); border-color: var(--state); }
+#delay { color: var(--state); }
+
+.bosses { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.boss { background: var(--panel); border: 2px solid var(--boss); border-radius: 8px; padding: 10px;
+  display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.boss-head { display: flex; align-items: center; gap: 10px; }
+.boss-img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; flex: none; }
+.boss-name { font-size: 22px; font-weight: bold; color: var(--boss); }
+.boss .count { font-size: 48px; font-weight: bold; text-align: center; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.boss .count-sub { text-align: center; color: var(--muted); font-size: 12px; min-height: 1.4em; }
+.boss.over .count { color: var(--late); }
+.boss.dead { opacity: .55; }
+.boss.dead .count { color: var(--late); font-size: 56px; }
+.boss.locked .count { color: var(--muted); }
+.boss .kill { font-size: 18px; font-weight: bold; padding: 10px; background: var(--boss); color: #111; border-color: var(--boss); }
+.boss .kill:disabled { background: var(--panel2); color: var(--muted); border-color: var(--line); opacity: 1; }
+
+.lists { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
+@media (max-width: 800px) { .lists { grid-template-columns: 1fr; } }
+.list-box, .history-box { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+.list-box h3, .history-box h3 { margin: 0 0 8px; font-size: 14px; color: var(--accent); }
+.empty { color: var(--muted); }
+
+.fighting { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.fight { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px;
+  background: var(--panel2); border-left: 6px solid var(--boss); }
+.fight .left { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fight .left.late-text { color: var(--late); font-weight: bold; }
+.player { border-left: 4px solid; padding-left: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player.big { font-size: 26px; font-weight: bold; }
+.boss-tag { display: inline-block; min-width: 46px; text-align: center; border-radius: 3px; padding: 0 4px;
+  color: #111; font-weight: bold; font-size: 12px; }
+
+.next { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.next-row { display: grid; grid-template-columns: 80px 1fr auto auto; gap: 8px; align-items: center; }
+.next-row .in { font-variant-numeric: tabular-nums; color: var(--fg); }
+.next-row .in.waiting { color: var(--late); font-weight: bold; }
+
+.history { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow: auto; font-size: 13px; }
+.hist-row { display: grid; grid-template-columns: 50px 60px 60px 1fr; gap: 8px; align-items: center; font-variant-numeric: tabular-nums; }
