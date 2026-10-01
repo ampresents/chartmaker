@@ -5,7 +5,7 @@
 const BOSSES = ["1st_boss", "2nd_boss", "3rd_boss", "Realm_boss"];
 const BOSS_LABEL = { "1st_boss": "1st", "2nd_boss": "2nd", "3rd_boss": "3rd", "Realm_boss": "Realm" };
 const IMAGE_KEYS = { "1st_boss": "image_1st", "2nd_boss": "image_2nd", "3rd_boss": "image_3rd", "Realm_boss": "image_realm" };
-const FLAGS = { display_team: "チーム名を表示", display_boss: "ボス画像を表示", display_party: "有利属性を表示" };
+const FLAGS = { display_team: "チーム名を表示", display_boss: "ボス画像を表示", display_party: "有利属性を表示", display_remaining: "時刻を残り時間で表示" };
 const KNOWN_KEYS = new Set(["comment", "timelag", ...BOSSES, ...Object.values(IMAGE_KEYS), ...Object.keys(FLAGS)]);
 const COOL = 300;          // クールタイム (ChartLib の cool_time)
 const CHART_SEC = 3600;    // 表示する時間
@@ -44,7 +44,10 @@ function h(tag, props = {}, ...children) {
 
 const bgr = (c) => (c ? `rgb(${c[2]},${c[1]},${c[0]})` : "transparent");
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
-const mmss = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+const mmss = (s) => `${s < 0 ? "-" : ""}${String(Math.floor(Math.abs(s) / 60)).padStart(2, "0")}:${String(Math.abs(s) % 60).padStart(2, "0")}`;
+// 画面に出す時刻。「残り時間で表示」なら 60 分からの残り（ChartLib.format_clock と同じ）
+const remaining = () => !!state.constants.display_remaining;
+const clock = (s) => mmss(remaining() ? CHART_SEC - s : s);
 const fmt = (n) => n.toLocaleString("en-US");
 const teamOf = (id) => id.slice(0, -2);
 // txt の構文を壊さないよう「=」と改行を置き換える
@@ -391,7 +394,7 @@ function render() {
 
   const axisBody = h("div", { class: "col-body", style: { height: `${bodyH}px` } });
   for (let m = 0; m <= 60; m += 5) {
-    axisBody.append(h("div", { class: "tick" + (m === 30 ? " half" : ""), style: { top: `${m * 60 * scale}px` } }, `${String(m).padStart(2, "0")}:00`));
+    axisBody.append(h("div", { class: "tick" + (m === 30 ? " half" : ""), style: { top: `${m * 60 * scale}px` } }, `${String(remaining() ? 60 - m : m).padStart(2, "0")}:00`));
   }
   const cols = [h("div", { class: "axis" }, h("div", { class: "col-head" }), axisBody)];
 
@@ -437,7 +440,7 @@ function render() {
       }));
       const bs = a.start + lag;
       block.append(h("div", { class: "info", style: { top: `${lag * scale + 1}px` } },
-        h("div", {}, `${mmss(bs)} ${BOSS_LABEL[a.boss]} ${a.battle}s`),
+        h("div", {}, `${clock(bs)} ${BOSS_LABEL[a.boss]} ${a.battle}s`),
         d ? h("div", {}, h("span", { class: "lv" }, `Lv${String(d.level).padStart(2, "0")} `), h("span", { class: "score" }, fmt(d.est_score))) : null,
         a.rate < 1 ? h("div", { class: "rate" }, `${Math.round(Math.max(a.rate, 0) * 100)}%`) : null));
       body.append(block);
@@ -478,7 +481,7 @@ function startDrag(e, pi, ai, mode) {
     tip.style.left = `${ev.clientX + 14}px`;
     tip.style.top = `${ev.clientY + 10}px`;
     tip.textContent = mode === "move"
-      ? `戦闘開始 ${mmss(a.start + timelag())}（待機 ${a.start - (ai ? acts[ai - 1].start + blockLen() : 0)}秒）`
+      ? `戦闘開始 ${clock(a.start + timelag())}（待機 ${a.start - (ai ? acts[ai - 1].start + blockLen() : 0)}秒）`
       : `戦闘 ${a.battle}秒`;
   };
   const onUp = () => {
@@ -558,10 +561,11 @@ function renderSide() {
       const wait = a.start - (ai ? p.actions[ai - 1].start + len : 0);
       parts.push(h("h3", {}, `戦闘 #${ai + 1}`),
         field("出撃 (push)", h("input", {
-          value: mmss(a.start), title: "mm:ss または秒数",
+          value: clock(a.start), title: remaining() ? "残り時間を mm:ss または秒数で" : "mm:ss または秒数",
           onchange: (e) => {
-            const t = parseTime(e.target.value);
+            let t = parseTime(e.target.value);
             if (t === null) { showStatus("時刻は mm:ss か秒数で入力してください"); renderSide(); return; }
+            if (remaining()) t = CHART_SEC - t;
             mutate(() => slideTo(p.actions, ai, t));
           },
         })),
@@ -578,7 +582,7 @@ function renderSide() {
           type: "number", min: 0, max: 1, step: 0.05, value: a.rate, title: "1 未満なら市松模様と % を表示します",
           onchange: (e) => mutate(() => { const r = parseFloat(e.target.value); a.rate = Number.isFinite(r) ? r : 1; }),
         })),
-        d ? h("p", { class: "hint" }, `戦闘 ${mmss(d.battle_start)}–${mmss(d.battle_end)}　再出撃 ${mmss(d.cool_off)}　Lv${d.level}　${fmt(d.est_score)} / ${fmt(d.score)}`) : null,
+        d ? h("p", { class: "hint" }, `戦闘 ${clock(d.battle_start)}–${clock(d.battle_end)}　再出撃 ${clock(d.cool_off)}　Lv${d.level}　${fmt(d.est_score)} / ${fmt(d.score)}`) : null,
         h("div", { class: "row" },
           h("span", { class: "grow" }),
           h("button", { class: "danger", onclick: () => mutate(() => { p.actions.splice(ai, 1); selection.a = null; }) }, "戦闘を削除 (Del)")));

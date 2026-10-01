@@ -43,6 +43,13 @@ def flatten_boss_icon(icon, bgcolor):
     return np.clip(np.rint(color + np.array(bgcolor, dtype=np.float32) * (1. - alpha)), 0, 255).astype(np.uint8)
 
 # 構文解析
+def format_clock(sec, remaining=False):
+    """ブロックの時刻ラベル。remaining なら 60 分からの残り時間（過ぎたら -mm:ss）"""
+    if remaining:
+        sec = 3600 - sec
+    sign = "-" if sec < 0 else ""
+    return "{}{:02d}:{:02d}".format(sign, abs(sec)//60, abs(sec)%60)
+
 def parse(text, item_num=5):
     chart = []
     constant = {}
@@ -288,6 +295,7 @@ def generate_chart(src, dst, config, margin_top=160):
     # 罫線の手前に表示したいもの
     details = generate_detail(commands, setting)
     label_y = layout_time_labels(details)
+    remaining = "display_remaining" in setting
     for detail, pos in zip(details, label_y):
         # プレイヤーを追加
         player_list.setdefault(detail["raw_name"], 120 + len(player_list)*246)
@@ -300,12 +308,12 @@ def generate_chart(src, dst, config, margin_top=160):
             cv2.putText(base, "{:2d}%".format(int(max(est_score, 0)*100)), org=(x+20, detail["battle_start"]+256+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=3.0, color=config["score_rate"]["color"], thickness=8, lineType=cv2.LINE_4)
 
         # 戦闘開始・戦闘終了・出撃可能（重ならない位置は layout_time_labels で決める）
-        cv2.putText(base, text="{:02d}:{:02d}".format(detail["battle_start"]//60,detail["battle_start"]%60), org=(x+112, pos["battle_start"]+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_start"]["bgcolor"], thickness=7, lineType=cv2.LINE_4)
-        cv2.putText(base, text="{:02d}:{:02d}".format(detail["battle_start"]//60,detail["battle_start"]%60), org=(x+112, pos["battle_start"]+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_start"]["color"], thickness=2, lineType=cv2.LINE_4)
-        cv2.putText(base, text="{:02d}:{:02d}".format(detail["battle_end"]//60,detail["battle_end"]%60), org=(x+112, pos["battle_end"]+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_end"]["bgcolor"], thickness=7, lineType=cv2.LINE_4)
-        cv2.putText(base, text="{:02d}:{:02d}".format(detail["battle_end"]//60,detail["battle_end"]%60), org=(x+112, pos["battle_end"]+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_end"]["color"], thickness=2, lineType=cv2.LINE_4)
-        cv2.putText(base, text="{:02d}:{:02d}".format(detail["cool_off"]//60,detail["cool_off"]%60), org=(x+112, pos["cool_off"]+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["cool_off"]["bgcolor"], thickness=7, lineType=cv2.LINE_4)
-        cv2.putText(base, text="{:02d}:{:02d}".format(detail["cool_off"]//60,detail["cool_off"]%60), org=(x+112, pos["cool_off"]+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_end"]["color"], thickness=2, lineType=cv2.LINE_4)
+        cv2.putText(base, text=format_clock(detail["battle_start"], remaining), org=(x+112, pos["battle_start"]+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_start"]["bgcolor"], thickness=7, lineType=cv2.LINE_4)
+        cv2.putText(base, text=format_clock(detail["battle_start"], remaining), org=(x+112, pos["battle_start"]+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_start"]["color"], thickness=2, lineType=cv2.LINE_4)
+        cv2.putText(base, text=format_clock(detail["battle_end"], remaining), org=(x+112, pos["battle_end"]+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_end"]["bgcolor"], thickness=7, lineType=cv2.LINE_4)
+        cv2.putText(base, text=format_clock(detail["battle_end"], remaining), org=(x+112, pos["battle_end"]+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_end"]["color"], thickness=2, lineType=cv2.LINE_4)
+        cv2.putText(base, text=format_clock(detail["cool_off"], remaining), org=(x+112, pos["cool_off"]+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["cool_off"]["bgcolor"], thickness=7, lineType=cv2.LINE_4)
+        cv2.putText(base, text=format_clock(detail["cool_off"], remaining), org=(x+112, pos["cool_off"]+margin_top), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["battle_end"]["color"], thickness=2, lineType=cv2.LINE_4)
         # LV
         cv2.putText(base, text="Lv{:02d}".format(detail["level"]), org=(x+12, detail["battle_start"]+margin_top+(128 if "display_boss" in setting else 28)), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["level"]["bgcolor"], thickness=12, lineType=cv2.LINE_4)
         cv2.putText(base, text="Lv{:02d}".format(detail["level"]), org=(x+12, detail["battle_start"]+margin_top+(128 if "display_boss" in setting else 28)), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["level"]["color"], thickness=2, lineType=cv2.LINE_4)
