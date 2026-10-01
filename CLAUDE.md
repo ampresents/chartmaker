@@ -40,6 +40,8 @@ py -3.11 -m venv .venv
   - Validation errors are returned as 400 `{error}`.
 - `web/app.js` (vanilla JS, no build step) stores each action as an absolute start second. It converts back to relative `wait_seconds` in `toText()`, and the output must stay parseable by the unchanged `parse`.
 - Image file names are internal and are never shown in the UI. In the settings panel, each boss's current image appears as a thumbnail only. Clicking it opens a thumbnail grid (`openImagePicker`) that has no file names, tooltips, or filter. The thumbnails imitate the chart: CSS `object-fit: cover` crops the centre square, and the background shows the boss element color, or `icon_bgcolor` if it is set.
+- Each timeline block shows at most 3 lines, so it still fits at the smallest zoom (0.15 px/sec, a block about 45 px tall). Line 1 is the battle's start–end time in bold. Line 2 is the boss, the battle seconds, and the rate when it is below 100%. Line 3 is the Lv and score from `/api/detail`.
+- Saved files are named after today's date: `YYYYMMDD.txt` from the text panel and `YYYYMMDD.png` from the image preview (`dateStem()`).
 - Undo/redo (Ctrl+Z / Ctrl+Y) keeps state snapshots. The working state is autosaved to `localStorage` in the browser only.
 - Timeline drag works like a sliding puzzle. A block moves alone through gaps and pushes touching neighbours. Pushed blocks stay where they were pushed.
 - The plan is to deploy publicly on Google Cloud (Cloud Run with gunicorn). Keep the server stateless.
