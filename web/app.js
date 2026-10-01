@@ -438,11 +438,14 @@ function render() {
         title: "ドラッグで戦闘時間を変更",
         onpointerdown: (e) => startDrag(e, pi, ai, "resize"),
       }));
+      // 1行目: いつ（開始–終了）、2行目: 何を（ボス・戦闘時間・撃破率）、3行目: 結果（Lv・スコア）
+      // 最小倍率でもブロックに収まるよう 3 行に抑える
       const bs = a.start + lag;
       block.append(h("div", { class: "info", style: { top: `${lag * scale + 1}px` } },
-        h("div", {}, `${clock(bs)} ${BOSS_LABEL[a.boss]} ${a.battle}s`),
-        d ? h("div", {}, h("span", { class: "lv" }, `Lv${String(d.level).padStart(2, "0")} `), h("span", { class: "score" }, fmt(d.est_score))) : null,
-        a.rate < 1 ? h("div", { class: "rate" }, `${Math.round(Math.max(a.rate, 0) * 100)}%`) : null));
+        h("div", { class: "time" }, `${clock(bs)}–${clock(bs + a.battle)}`),
+        h("div", {}, `${BOSS_LABEL[a.boss]} ${a.battle}s`,
+          a.rate < 1 ? h("span", { class: "rate" }, ` ${Math.round(Math.max(a.rate, 0) * 100)}%`) : null),
+        d ? h("div", {}, h("span", { class: "lv" }, `Lv${String(d.level).padStart(2, "0")} `), h("span", { class: "score" }, fmt(d.est_score))) : null));
       body.append(block);
     });
 
@@ -482,7 +485,7 @@ function startDrag(e, pi, ai, mode) {
     tip.style.top = `${ev.clientY + 10}px`;
     tip.textContent = mode === "move"
       ? `戦闘開始 ${clock(a.start + timelag())}（待機 ${a.start - (ai ? acts[ai - 1].start + blockLen() : 0)}秒）`
-      : `戦闘 ${a.battle}秒`;
+      : `戦闘 ${a.battle}秒（終了 ${clock(a.start + timelag() + a.battle)}）`;
   };
   const onUp = () => {
     document.removeEventListener("pointermove", onMove);
@@ -503,8 +506,8 @@ function renderSummary() {
   const max = details.reduce((s, d) => s + d.score, 0);
   const est = details.reduce((s, d) => s + d.est_score, 0);
   const maxLv = details.reduce((m, d) => Math.max(m, d.level), 0);
-  el.replaceChildren("到達 ", h("b", {}, `Lv${maxLv}`), "　Max ", h("b", {}, fmt(max)),
-    ...(est < max ? ["　Est ", h("b", {}, fmt(est))] : []));
+  el.replaceChildren("到達 ", h("b", {}, `Lv${maxLv}`), "　最大 ", h("b", {}, fmt(max)),
+    ...(est < max ? ["　見積もり ", h("b", {}, fmt(est))] : []));
 }
 
 // ---------------------------------------------------------------- 描画: サイドパネル
