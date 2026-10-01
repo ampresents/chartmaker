@@ -84,6 +84,12 @@ def logo():
     return send_from_directory(BASE_DIR, "logo.png")
 
 
+# ブラウザのタブに出すアイコン
+@app.get("/icon.png")
+def icon():
+    return send_from_directory(BASE_DIR, "icon.png")
+
+
 @app.get("/image/<path:name>")
 def image(name):
     return send_from_directory(IMAGE_DIR, name)
