@@ -103,7 +103,7 @@ The pipeline is `generate_chart` → `parse` → `generate_detail` → `calc_lev
   1. OpenCV draws the battle and cooldown blocks behind the grid.
   2. OpenCV draws the grid and time labels.
   3. OpenCV draws the text labels in front of the grid.
-  4. The image is converted to PIL for the Japanese-capable text (player and team names, the comment, in `font/meiryo.ttc`).
+  4. The image is converted to PIL for the Japanese-capable text (player and team names, the comment, in `font/NotoSansJP-Regular.otf`, SIL OFL 1.1, license in `font/OFL.txt`).
   5. The image is converted back to OpenCV for the party dots and the logo.
 - The y positions of the time labels (battle start, battle end, `Nsec` duration, re-sortie time) come from `layout_time_labels`. For each player column it spreads the labels apart so they keep a minimum spacing while moving as little as possible from their default positions (least squares). This stops labels overlapping when a battle is very short or when blocks sit right next to each other.
 - Layout constants are hardcoded. Columns are 246 px wide starting at x=120, with a maximum of 20 players. `margin_top` is 160, and y = seconds + `margin_top`. The score footer is at y≈3840–3980.

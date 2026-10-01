@@ -351,7 +351,7 @@ def generate_chart(src, dst, config, margin_top=160):
 
     # コメントを描画
     font = ImageFont.truetype(BASE_DIR + setting["comment_font"]["font"], setting["comment_font"]["fontsize"])
-    draw.text((420, 3940), setting["comment"], font=font, fill=(*setting["comment_font"]["color"], 0))
+    draw.text((420, 3932), setting["comment"], font=font, fill=(*setting["comment_font"]["color"], 0))
 
     base = np.array(img) # PIL型の画像をcv2(NumPy)型に変換
     # ここまでPILで処理

@@ -10,7 +10,7 @@
     },
     "player_name":{
         "color"    :[0, 180, 240],
-        "font"     :"/font/meiryo.ttc",
+        "font"     :"/font/NotoSansJP-Regular.otf",
         "fontsize" :40
     },
     "team":{
@@ -24,7 +24,7 @@
             "Eta"    :[128,255,255],
             "Shadow" :[240,32,164]
         },
-        "font"     :"/font/meiryo.ttc",
+        "font"     :"/font/NotoSansJP-Regular.otf",
         "fontsize" :32
     },
     "battle_start":{
@@ -74,7 +74,7 @@
     },
     "comment_font":{
         "color"    :[192, 192, 192],
-        "font"     :"/font/meiryo.ttc",
+        "font"     :"/font/NotoSansJP-Regular.otf",
         "fontsize" :48
     },
     "logo_image": "/logo.png"
