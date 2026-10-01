@@ -25,3 +25,11 @@ cat > "$POLICY" <<'JSON'
 JSON
 gcloud artifacts repositories set-cleanup-policies cloud-run-source-deploy \
   --project="$PROJECT" --location="$REGION" --policy="$POLICY" --no-dry-run
+
+# --source でアップロードしたソースの zip もバケットに溜まる。ビルド後は使わないので 7 日で消す
+LIFECYCLE="$(mktemp)"
+cat > "$LIFECYCLE" <<'JSON'
+{"rule": [{"action": {"type": "Delete"}, "condition": {"age": 7}}]}
+JSON
+gcloud storage buckets update "gs://run-sources-$PROJECT-$REGION" \
+  --project="$PROJECT" --lifecycle-file="$LIFECYCLE"
