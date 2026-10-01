@@ -11,8 +11,7 @@ from collections import deque
 
 from flask import Flask, jsonify, request, send_from_directory
 
-from mysite.settings import BASE_DIR
-from ChartLib import parse, generate_detail, generate_chart, calc_level
+from ChartLib import BASE_DIR, parse, generate_detail, generate_chart, calc_level
 from store import make_store, NotFound
 
 BOSSES = ("1st_boss", "2nd_boss", "3rd_boss", "Realm_boss")
@@ -31,9 +30,6 @@ RENDER_WAIT = 20              # 空きを待つ秒数。過ぎたら 503
 
 WEB_DIR = os.path.join(BASE_DIR, "web")
 IMAGE_DIR = os.path.join(BASE_DIR, "image")
-
-# generate_detail がデバッグ用 json を書き出すため
-os.makedirs(os.path.join(BASE_DIR, "output"), exist_ok=True)
 
 app = Flask(__name__, static_folder=WEB_DIR, static_url_path="/static")
 app.config["MAX_CONTENT_LENGTH"] = MAX_TEXT * 4
@@ -284,7 +280,6 @@ def api_session_create():
     plan = {
         "comment": setting.get("comment") or "",
         "start_epoch_ms": int(start),
-        "start_time": setting.get("start_time") or "",
         "bosses": bosses,
         "team_color": config["team"]["team_color"],
         "cleartime": clear_time,

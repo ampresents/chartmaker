@@ -16,10 +16,9 @@ from ChartLib import generate_chart
 generate_chart("./src/<name>.txt", "./output/<name>.png", json.load(open("config.json")))
 ```
 
-- Run it from the repo root. `ChartLib` imports `BASE_DIR` from `mysite/settings.py`, and every asset path (fonts, images, logo) is `BASE_DIR` + a path that starts with `/`.
-- `src/` (input schedules) and `output/` are not tracked by git, so create them locally. `output/` must exist: `generate_detail` also writes `output/cleartime.json` and `output/detail.json` there as debug dumps.
+- Run it from the repo root. `ChartLib` defines `BASE_DIR` as its own directory (`app.py` imports it from there), and every asset path (fonts, images, logo) is `BASE_DIR` + a path that starts with `/`.
+- `src/` (input schedules) and `output/` are not tracked by git, so create them locally. `output/` is only the destination of the notebook's PNGs.
 - Dependencies: `opencv-python`, `numpy`, `Pillow`. Pillow must be **< 10** because the code calls `ImageDraw.textsize`, which was removed in Pillow 10. OpenCV must be **< 5**: OpenCV 5 replaced the Hershey fonts in `putText` and ignores `thickness`, which changes the typeface and removes the text outlines (the thick `bgcolor` underlay).
-- `mysite/` holds only a leftover Django `settings.py` (the site ran at chartmaker.shop). There is no Django app in this repo. Only `BASE_DIR` is used.
 
 ## Browser GUI (`app.py` + `web/`)
 
@@ -100,7 +99,7 @@ gunicorn runs 1 worker × 16 threads, so these guards share one process.
 The pipeline is `generate_chart` → `parse` → `generate_detail` → `calc_level`, then drawing.
 
 - `calc_level` simulates floor progression. The three regular bosses must be cleared on the current floor before a `Realm_boss` clear advances to the next floor. It returns the clear time of each floor. `generate_detail` uses these times to assign each battle its `level`, and the level sets the score: `50000 * min((floor-1)//5+1, 5)`, times 1.2 for the Realm boss.
-- Drawing happens in layers, and `generate_detail` is called twice (once per pass):
+- Drawing happens in layers, all from one `generate_detail` result:
   1. OpenCV draws the battle and cooldown blocks behind the grid.
   2. OpenCV draws the grid and time labels.
   3. OpenCV draws the text labels in front of the grid.

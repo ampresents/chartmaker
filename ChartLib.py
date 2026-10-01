@@ -2,12 +2,13 @@ import warnings
 warnings.filterwarnings('ignore')
 
 import cv2
-import json
 import math
+import os
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from mysite.settings import BASE_DIR
+# フォント・画像などのパスはこのディレクトリ + "/..." で解決する
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 BOSS_ICON_SIZE = 100 # ボスアイコンの一辺
 
@@ -50,7 +51,7 @@ def format_clock(sec, remaining=False):
     sign = "-" if sec < 0 else ""
     return "{}{:02d}:{:02d}".format(sign, abs(sec)//60, abs(sec)%60)
 
-def parse(text, item_num=5):
+def parse(text):
     chart = []
     constant = {}
     for i, raw_line in enumerate(text):
@@ -69,11 +70,11 @@ def parse(text, item_num=5):
             continue
 
         item = item + ("1.0",)  # 見積もりはデフォルトでワンパン
-        if len(item) < item_num:
+        if len(item) < 5:
             raise Exception("[line:{}] {}".format(i+1, line))
 
         if item[2] in ("1st_boss", "2nd_boss", "3rd_boss", "Realm_boss"):
-            chart.append(item[:item_num])
+            chart.append(item[:5])
         else:
             raise Exception("[line:{}] {}".format(i+1, line))
             
@@ -100,7 +101,7 @@ def calc_level(commands, timelag, cool_time):
         current_pos[player_name] += int(waiting_time)
 
         push_start = current_pos[player_name]
-        battle_end = push_start + timelag + (120 if action_time is None else int(action_time))
+        battle_end = push_start + timelag + int(action_time)
         new_info.append((push_start, battle_end, action))
         
         current_pos[player_name] += timelag + cool_time
@@ -132,15 +133,13 @@ def generate_detail(commands, constant):
     current_pos = {}
     timelag = int(constant["timelag"])
 
-    floor_time, clear_time = calc_level(commands, timelag, cool_time)
-    with open(BASE_DIR + "/output/cleartime.json", "w") as cleartime:
-        cleartime.write(json.dumps(clear_time, indent=4))
-    
+    floor_time, _ = calc_level(commands, timelag, cool_time)
+
     for player_name, waiting_time, action, action_time, score_rate in commands:
         current_pos.setdefault(player_name, 0)
 
         current_pos[player_name] += int(waiting_time)
-        play_time = 120 if action_time is None else int(action_time)
+        play_time = int(action_time)
 
         item = {}
         item["push_start"] = current_pos[player_name]
@@ -168,8 +167,6 @@ def generate_detail(commands, constant):
 
         current_pos[player_name] += timelag + cool_time
 
-    with open(BASE_DIR + "/output/detail.json", "w") as detailjson:
-        detailjson.write(json.dumps(detail, indent=4, ensure_ascii=False))
     return detail
 
 # 時刻ラベル（戦闘開始・戦闘終了・戦闘時間・出撃可能）の表示位置
@@ -226,7 +223,6 @@ def generate_chart(src, dst, config, margin_top=160):
     advantage = {"blue":"yellow", "red":"blue", "green":"red", "yellow":"green", "white":"white"}
 
     player_list = {}
-    current_pos = {}
     party = {}
     player_scores = {}
     min_scores = {}
@@ -244,10 +240,11 @@ def generate_chart(src, dst, config, margin_top=160):
             "Realm_boss":load_boss_icon(BASE_DIR + setting["image_realm"])
         }
 
+    details = generate_detail(commands, setting)
+
     # 罫線の奥に表示したいもの
-    for detail in generate_detail(commands, setting):
+    for detail in details:
         player_name = detail["raw_name"]
-        current_pos[player_name] = 0
         party.setdefault(player_name, {})
         boss_color = setting[detail["action"]]
         # プレイヤーを追加
@@ -293,12 +290,9 @@ def generate_chart(src, dst, config, margin_top=160):
     cv2.putText(base, text="30:00", org=(246*20+120, margin_top+1810), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["grid_color"]["time30min"], thickness=2, lineType=cv2.LINE_4)
 
     # 罫線の手前に表示したいもの
-    details = generate_detail(commands, setting)
     label_y = layout_time_labels(details)
     remaining = "display_remaining" in setting
     for detail, pos in zip(details, label_y):
-        # プレイヤーを追加
-        player_list.setdefault(detail["raw_name"], 120 + len(player_list)*246)
         x = player_list[detail["raw_name"]]
 
         # スコアレート
@@ -323,7 +317,6 @@ def generate_chart(src, dst, config, margin_top=160):
     
         # 戦闘時間
         if detail["play_time"] < 180:
-            #text = "No limit" if detail["play_time"] > 190 else "{}sec".format(detail["play_time"])
             text = "{}sec".format(detail["play_time"])
             cv2.putText(base, text, org=(x+112, pos["play_time"]+margin_top+8), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["play_time"]["bgcolor"], thickness=14, lineType=cv2.LINE_4)
             cv2.putText(base, text, org=(x+112, pos["play_time"]+margin_top+8), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=config["play_time"]["color"], thickness=2, lineType=cv2.LINE_4)
@@ -344,7 +337,7 @@ def generate_chart(src, dst, config, margin_top=160):
     font_team = ImageFont.truetype(BASE_DIR + setting["team"]["font"], setting["team"]["fontsize"])
     img = Image.fromarray(base[:3600+margin_top+240]) # cv2(NumPy)型の画像をPIL型に変換
     draw = ImageDraw.Draw(img)
-    for i, raw_name in enumerate(current_pos.keys()):
+    for i, raw_name in enumerate(player_list):
         # メンバー名の描画
         name = get_player_name(setting, raw_name)
         w, _ = draw.textsize(name, font_name)
@@ -364,7 +357,7 @@ def generate_chart(src, dst, config, margin_top=160):
     # ここまでPILで処理
 
     # 有利編成を描画
-    for i, raw_name in enumerate(current_pos.keys()):
+    for i, raw_name in enumerate(player_list):
         if "display_party" in setting:
             for idx, party_color in enumerate(party[raw_name]):
                 cv2.circle(base, center=(i*246+44*idx+268-len(party[raw_name])*24, 120), radius=10, color=color_table[party_color], thickness=-1, lineType=cv2.LINE_4, shift=0)
