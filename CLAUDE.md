@@ -31,6 +31,7 @@ py -3.11 -m venv .venv
 
 - `app.py` is a thin, stateless Flask wrapper. It never modifies ChartLib's behaviour. Endpoints:
   - `GET /logo.png` serves the root `logo.png` for the GUI header. It is the same file as config.json's `logo_image`, which is drawn into the chart.
+  - `GET /icon.png` serves the root `icon.png` as the browser-tab favicon. The page title is "ChartMaker".
   - `GET /image/<name>` serves a boss icon from `image/`, for the GUI thumbnails.
   - `GET /api/config` returns config.json and the list of `image/*.png` (as `/image/<name>` paths).
   - `POST /api/parse {text}` returns `ChartLib.parse`.
