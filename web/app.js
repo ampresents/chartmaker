@@ -638,12 +638,11 @@ function renderSettings() {
     const colorSel = h("select", {}, colors.map((k) => h("option", { value: k, selected: k === c[b] }, k)));
     colorSel.addEventListener("change", () => mutate(() => { c[b] = colorSel.value; }));
     const key = IMAGE_KEYS[b];
-    const imgSel = h("select", {}, IMAGES.map((src) => h("option", { value: src, selected: src === c[key] }, src.replace("/image/", ""))));
-    if (!IMAGES.includes(c[key])) imgSel.prepend(h("option", { value: c[key], selected: true }, c[key] || "(未設定)"));
-    imgSel.addEventListener("change", () => mutate(() => { c[key] = imgSel.value; }));
+    const pick = h("button", { class: "icon-pick", title: "クリックして画像を選ぶ", onclick: () => openImagePicker(b) },
+      iconThumb(c[key], b), h("span", { class: "icon-name" }, imageName(c[key]) || "(未設定)"));
     parts.push(h("div", { class: "boss-row" },
       h("span", {}, h("span", { class: "swatch", style: { background: bgr(CONFIG.color_table[c[b]]) } }), BOSS_LABEL[b]),
-      colorSel, imgSel, h("img", { src: c[key], alt: "" })));
+      colorSel, pick));
   }
   parts.push(h("h3", {}, "表示"));
   for (const [f, label] of Object.entries(FLAGS)) {
@@ -655,6 +654,50 @@ function renderSettings() {
       h("p", { class: "hint", style: { whiteSpace: "pre-wrap" } }, state.extras.map(([k, v]) => (v === null ? `::${k}` : `::${k}=${v}`)).join("\n")));
   }
   $("#panel-settings").replaceChildren(...parts);
+}
+
+// ---------------------------------------------------------------- ボス画像の選択
+
+const imageName = (src) => (src || "").replace(/^\/image\//, "");
+
+// 透過部分の色。ChartLib と同じく、::icon_bgcolor があればその色、なければボスの属性色
+function iconBg(boss) {
+  const fixed = state.extras.find(([k]) => k === "icon_bgcolor");
+  return bgr(CONFIG.color_table[(fixed && fixed[1]) || state.constants[boss]]);
+}
+
+// 画像生成と同じく中央を正方形に切り出したサムネイル
+function iconThumb(src, boss, lazy = false) {
+  return h("img", { class: "icon-thumb", src: src || "", alt: "", loading: lazy ? "lazy" : "eager",
+    style: { background: iconBg(boss) } });
+}
+
+function openImagePicker(boss) {
+  const key = IMAGE_KEYS[boss];
+  const current = state.constants[key];
+  const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey, true); };
+  const choose = (src) => { close(); if (src !== current) mutate(() => { state.constants[key] = src; }); };
+  const onKey = (e) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
+  };
+
+  const tiles = IMAGES.map((src) => h("button", {
+    class: "icon-tile" + (src === current ? " current" : ""), onclick: () => choose(src),
+  }, iconThumb(src, boss, true)));
+  const grid = h("div", { class: "icon-grid" }, tiles);
+  const overlay = h("div", { id: "picker", onclick: (e) => { if (e.target === overlay) close(); } },
+    h("div", { class: "picker-box" },
+      h("div", { class: "row" },
+        h("b", {}, `${BOSS_LABEL[boss]} の画像を選択`),
+        h("span", { class: "hint" }, `${IMAGES.length} 件`),
+        h("span", { class: "grow" }),
+        h("button", { onclick: close }, "閉じる")),
+      grid));
+  document.body.append(overlay);
+  document.addEventListener("keydown", onKey, true);
+  const cur = grid.querySelector(".current");
+  (cur || tiles[0])?.focus({ preventScroll: true });
+  if (cur) cur.scrollIntoView({ block: "center" });
 }
 
 function updateText() {
@@ -716,7 +759,7 @@ function bindUI() {
   bindSplitter();
 
   document.addEventListener("keydown", (e) => {
-    if (e.target.closest("input, textarea, select, #splitter")) return;
+    if (e.target.closest("input, textarea, select, #splitter, #picker")) return;
     const key = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
     else if ((e.ctrlKey || e.metaKey) && (key === "y" || (key === "z" && e.shiftKey))) { e.preventDefault(); redo(); }

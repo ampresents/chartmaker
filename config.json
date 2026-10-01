@@ -2,10 +2,10 @@
     "comment": "YYYY/MM/DD 第◯◯回魔界殲滅戦争 Round 1",
     "timelag": 0,
     "color_table":{
-        "blue"   :[255,80,0],
         "red"    :[60,60,230],
         "green"  :[20,180,0],
         "yellow" :[32,220,220],
+        "blue"   :[255,80,0],
         "white"  :[240,220,220]
     },
     "player_name":{
