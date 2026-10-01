@@ -11,14 +11,11 @@ from collections import deque
 
 from flask import Flask, jsonify, request, send_from_directory
 
-from ChartLib import BASE_DIR, parse, generate_detail, generate_chart, calc_level
+from ChartLib import (BASE_DIR, BOSSES, REGULAR_BOSSES, IMAGE_KEYS, COOL_TIME, MAX_PLAYERS,
+                      parse, generate_detail, generate_chart, calc_level)
 from store import make_store, NotFound
 
-BOSSES = ("1st_boss", "2nd_boss", "3rd_boss", "Realm_boss")
-MAX_PLAYERS = 20
 MAX_TEXT = 200_000
-COOL_TIME = 300  # generate_detail の cool_time
-IMAGE_KEYS = dict(zip(BOSSES, ("image_1st", "image_2nd", "image_3rd", "image_realm")))
 
 # 公開時の料金対策。IP ごとの回数制限 (回数, 秒) と、画像生成の同時実行数
 LIMIT_EDIT = (300, 60)        # /api/parse, /api/detail (エディタは編集のたびに呼ぶ)
@@ -143,7 +140,7 @@ def validate(commands, constants, config, check_images=True):
     except (TypeError, ValueError):
         raise InputError("::timelag は整数で指定してください")
     if check_images and "display_boss" in setting:
-        for key in ("image_1st", "image_2nd", "image_3rd", "image_realm"):
+        for key in IMAGE_KEYS.values():
             path = setting.get(key)
             if not path or not os.path.isfile(BASE_DIR + path):
                 raise InputError("::{} の画像が見つかりません: {}".format(key, path))
@@ -318,7 +315,7 @@ def api_session_kill(sid):
             raise Conflict("既に階層が進んでいます")
         if boss in killed:
             raise Conflict("既に討伐済みです")
-        if boss == "Realm_boss" and not {"1st_boss", "2nd_boss", "3rd_boss"} <= killed:
+        if boss == "Realm_boss" and not set(REGULAR_BOSSES) <= killed:
             raise Conflict("1st・2nd・3rd を倒すまで Realm には挑めません")
         at = now_ms()
         doc["events"].append({"floor": floor, "boss": boss, "at": at,

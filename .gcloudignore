@@ -1,12 +1,3 @@
-# gcloud run deploy --source . でアップロードしないもの
-.git/
-.gitignore
+# gcloud run deploy --source . でアップロードしないもの。Docker のビルドと同じ除外に揃える
 .gcloudignore
-.venv/
-__pycache__/
-src/
-output/
-deploy/
-*.ipynb
-README.md
-CLAUDE.md
+#!include:.dockerignore

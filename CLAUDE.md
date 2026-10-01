@@ -38,6 +38,7 @@ py -3.11 -m venv .venv
   - `POST /api/render {text}` writes the txt to a temp dir and calls `generate_chart`, returning a PNG.
   - Validation errors are returned as 400 `{error}`.
 - `web/app.js` (vanilla JS, no build step) stores each action as an absolute start second. It converts back to relative `wait_seconds` in `toText()`, and the output must stay parseable by the unchanged `parse`.
+- Shared constants: `ChartLib.py` defines `BOSSES`, `REGULAR_BOSSES`, `IMAGE_KEYS`, `COOL_TIME` and `MAX_PLAYERS`, and `app.py` imports them. The browser side cannot import Python, so `web/common.js` mirrors `BOSSES`, `BOSS_LABEL`, `COOL_TIME` and `CHART_SEC` and is loaded before `app.js` and `tracker.js`. Keep the two in sync. Top-level `const`s in these classic scripts share one scope, so never redeclare a `common.js` name.
 - Image file names are internal and are never shown in the UI. In the settings panel, each boss's current image appears as a thumbnail only. Clicking it opens a thumbnail grid (`openImagePicker`) that has no file names, tooltips, or filter. The thumbnails imitate the chart: CSS `object-fit: cover` crops the centre square, and the background shows the boss element color, or `icon_bgcolor` if it is set.
 - Each timeline block shows at most 3 lines, so it still fits at the smallest zoom (0.15 px/sec, a block about 45 px tall). Line 1 is the battle's start–end time in bold. Line 2 is the boss, the battle seconds, and the rate when it is below 100%. Line 3 is the Lv and score from `/api/detail`.
 - Saved files are named after today's date: `YYYYMMDD.txt` from the text panel and `YYYYMMDD.png` from the image preview (`dateStem()`).
@@ -69,6 +70,7 @@ It replaces the old in-game app that read `cleartime.json` and `detail.json`. Op
 
 Run these from the repo root in Git Bash, with `PROJECT=<id>` set:
 - `deploy/setup.sh` runs once. It enables the APIs, creates Firestore with a TTL on `expire_at`, and creates the `chartmaker-run` service account with `roles/datastore.user`.
+- `.gcloudignore` only does `#!include:.dockerignore`, so edit the exclusions in `.dockerignore`.
 - `deploy/deploy.sh` runs `gcloud run deploy --source .`. It uses `--max-instances` (default 1, which is the main cost cap), `--min-instances=0`, `--concurrency=32`, and `STORE=firestore`. It also sets an Artifact Registry cleanup policy.
 - `deploy/budget.sh` creates a budget (default `BUDGET=1000JPY`) that publishes to Pub/Sub topic `billing-alerts`. The `stop-billing` function (`deploy/billing_guard/`) unlinks the project's billing account once cost exceeds the budget. Set `DRY_RUN=1` to deploy it in log-only mode.
 
@@ -106,6 +108,6 @@ The pipeline is `generate_chart` → `parse` → `generate_detail` → `calc_lev
   4. The image is converted to PIL for the Japanese-capable text (player and team names, the comment, in `font/NotoSansJP-Regular.otf`, SIL OFL 1.1, license in `font/OFL.txt`).
   5. The image is converted back to OpenCV for the party dots and the logo.
 - The y positions of the time labels (battle start, battle end, `Nsec` duration, re-sortie time) come from `layout_time_labels`. For each player column it spreads the labels apart so they keep a minimum spacing while moving as little as possible from their default positions (least squares). This stops labels overlapping when a battle is very short or when blocks sit right next to each other.
-- Layout constants are hardcoded. Columns are 246 px wide starting at x=120, with a maximum of 20 players. `margin_top` is 160, and y = seconds + `margin_top`. The score footer is at y≈3840–3980.
+- Layout constants are hardcoded. Columns are 246 px wide starting at x=120, with a maximum of `MAX_PLAYERS` (20) players. `margin_top` is 160, and y = seconds + `margin_top`. The score footer is at y≈3840–3980.
 - All colors in `config.json` are in **BGR** order, because the arrays are OpenCV arrays and the PIL fills are written straight into them.
 - Many draw calls read `config[...]` instead of `setting[...]`. A `::` constant in the txt file overrides only the keys read through `setting`: timelag, boss colors, the display flags, images, fonts, the comment, and the logo.
