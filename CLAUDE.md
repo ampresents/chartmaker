@@ -66,6 +66,20 @@ It replaces the old in-game app that read `cleartime.json` and `detail.json`. Op
 - "作戦との差" (difference from the plan) is the larger of: the last kill's delay against `cleartime[floor][boss]`, and the overdue time of any pending boss on the current floor. Late is red and early is green. The score is the sum of `est_score` over battles with `battle_end <= now`.
 - Quirk inherited from `calc_level`: a regular-boss battle with `push_start == 0` is not counted toward 1F (`push_start > clear_time[0]["Realm_boss"]`), so a plan whose first pushes are at second 0 shows "作戦に予定なし" ("not in the plan") for 1F.
 
+## Deploying to Cloud Run (`Dockerfile`, `deploy/`)
+
+Run these from the repo root in Git Bash, with `PROJECT=<id>` set:
+- `deploy/setup.sh` runs once. It enables the APIs, creates Firestore with a TTL on `expire_at`, and creates the `chartmaker-run` service account with `roles/datastore.user`.
+- `deploy/deploy.sh` runs `gcloud run deploy --source .`. It uses `--max-instances` (default 1, which is the main cost cap), `--min-instances=0`, `--concurrency=32`, and `STORE=firestore`. It also sets an Artifact Registry cleanup policy.
+- `deploy/budget.sh` creates a budget (default `BUDGET=1000JPY`) that publishes to Pub/Sub topic `billing-alerts`. The `stop-billing` function (`deploy/billing_guard/`) unlinks the project's billing account once cost exceeds the budget. Set `DRY_RUN=1` to deploy it in log-only mode.
+
+The cost guards inside the app are per-process:
+- `RateLimiter` limits requests per IP (`LIMIT_*` in `app.py`). On Cloud Run the client IP is the last `X-Forwarded-For` entry.
+- `render_slots` caps concurrent renders at 2, and returns 503 after a 20 s wait.
+- `CachedStore` reuses a Firestore `get` for 1 s, so tracker polling costs about 1 read per second per session per instance, instead of 1 per client.
+
+gunicorn runs 1 worker × 16 threads, so these guards share one process.
+
 ## Input schedule format (`src/*.txt`, parsed by `parse`)
 
 - A line starting with `#` is a comment.
