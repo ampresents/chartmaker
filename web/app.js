@@ -639,7 +639,7 @@ function renderSettings() {
     colorSel.addEventListener("change", () => mutate(() => { c[b] = colorSel.value; }));
     const key = IMAGE_KEYS[b];
     const pick = h("button", { class: "icon-pick", title: "クリックして画像を選ぶ", onclick: () => openImagePicker(b) },
-      iconThumb(c[key], b), h("span", { class: "icon-name" }, imageName(c[key]) || "(未設定)"));
+      c[key] ? iconThumb(c[key], b) : h("span", { class: "icon-empty" }, "未設定"));
     parts.push(h("div", { class: "boss-row" },
       h("span", {}, h("span", { class: "swatch", style: { background: bgr(CONFIG.color_table[c[b]]) } }), BOSS_LABEL[b]),
       colorSel, pick));
@@ -658,7 +658,6 @@ function renderSettings() {
 
 // ---------------------------------------------------------------- ボス画像の選択
 
-const imageName = (src) => (src || "").replace(/^\/image\//, "");
 
 // 透過部分の色。ChartLib と同じく、::icon_bgcolor があればその色、なければボスの属性色
 function iconBg(boss) {
