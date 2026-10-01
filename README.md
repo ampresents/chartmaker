@@ -132,7 +132,7 @@ bash deploy/deploy.sh
 | CPU / メモリ | 1 / 1GiB | 画像生成 1 回で数百 MB 使う |
 | `STORE` | `firestore` | 進捗管理のセッションを Firestore に保存（再起動・複数台でも共有） |
 
-- ビルドしたイメージは Artifact Registry に溜まり保管料がかかるため、新しい 2 つだけ残す設定も同時に入れています
+- ビルドしたイメージ（Artifact Registry）は新しい 2 つだけ残し、アップロードしたソースの zip（バケット `run-sources-<プロジェクトID>-asia-northeast1`）は 7 日で自動削除する設定も同時に入れています。どちらも保管料を無料枠に収めるため
 - アップロードしないファイルは `.dockerignore` で指定しています（`.gcloudignore` はそれを読み込むだけ）。`src/` `output/` `deploy/` `.venv/` などは送られません
 
 ### デプロイ後の確認
