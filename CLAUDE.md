@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-chartmaker renders a raid timeline chart as a PNG: one column per player, one pixel per second over a 60-minute window. It shows each boss battle, the 5-minute cooldown, the floor level, and the expected score. All logic lives in `ChartLib.py`. `time_chart.ipynb` is the driver. There is no build system, test suite, linter, or requirements file.
+chartmaker renders a raid timeline chart as a PNG: one column per player, one pixel per second over a 60-minute window. It shows each boss battle, the 5-minute cooldown, the floor level, and the expected score. All logic lives in `ChartLib.py`. `time_chart.ipynb` is the driver. There is no build system, test suite, or linter. `requirements.txt` lists the dependencies for the browser GUI (see below).
 
 ## Running
 
@@ -31,12 +31,15 @@ py -3.11 -m venv .venv
 
 - `app.py` is a thin, stateless Flask wrapper. It never modifies ChartLib's behaviour. Endpoints:
   - `GET /logo.png` serves the root `logo.png` for the GUI header. It is the same file as config.json's `logo_image`, which is drawn into the chart.
-  - `GET /api/config` returns config.json and the list of `image/*.png`.
+  - `GET /image/<name>` serves a boss icon from `image/`, for the GUI thumbnails.
+  - `GET /api/config` returns config.json and the list of `image/*.png` (as `/image/<name>` paths).
   - `POST /api/parse {text}` returns `ChartLib.parse`.
   - `POST /api/detail {text}` returns `generate_detail`, which the GUI uses for Lv/score.
   - `POST /api/render {text}` writes the txt to a temp dir and calls `generate_chart`, returning a PNG.
   - Validation errors are returned as 400 `{error}`.
 - `web/app.js` (vanilla JS, no build step) stores each action as an absolute start second. It converts back to relative `wait_seconds` in `toText()`, and the output must stay parseable by the unchanged `parse`.
+- Image file names are internal and are never shown in the UI. In the settings panel, each boss's current image appears as a thumbnail only. Clicking it opens a thumbnail grid (`openImagePicker`) that has no file names, tooltips, or filter. The thumbnails imitate the chart: CSS `object-fit: cover` crops the centre square, and the background shows the boss element color, or `icon_bgcolor` if it is set.
+- Undo/redo (Ctrl+Z / Ctrl+Y) keeps state snapshots. The working state is autosaved to `localStorage` in the browser only.
 - Timeline drag works like a sliding puzzle. A block moves alone through gaps and pushes touching neighbours. Pushed blocks stay where they were pushed.
 - The plan is to deploy publicly on Google Cloud (Cloud Run with gunicorn). Keep the server stateless.
 
@@ -46,7 +49,7 @@ py -3.11 -m venv .venv
 - `::key=value` defines a constant. A bare `::key` sets that key to `None`, which is how the presence-only flags are turned on. Constants are merged over `config.json` (`setting = dict(config, **constants)`). Values stay strings, so numbers like `::timelag=3` are converted with `int()` at the point of use. Constants the chart relies on:
   - `::1st_boss=`, `::2nd_boss=`, `::3rd_boss=`, `::Realm_boss=` set each boss's element color (`blue`, `red`, `green`, `yellow`, or `white`). These are required because `setting[action]` is looked up for every battle.
   - The flags `display_party`, `display_boss`, and `display_team` are checked by presence only.
-  - `image_1st`, `image_2nd`, `image_3rd`, and `image_realm` give the boss icon paths used when `display_boss` is set, for example `/image/dragon_red.png`. The images can be any size or aspect ratio: `load_boss_icon` crops the centre square and resizes it to 100×100, keeping the alpha channel (premultiplied, so edges don't darken). `flatten_boss_icon` fills transparent areas with that battle's boss element color from `color_table`; the optional `::icon_bgcolor=<color_table name>` forces a single color for every icon.
+  - `image_1st`, `image_2nd`, `image_3rd`, and `image_realm` give the boss icon paths used when `display_boss` is set, for example `/image/LI_3009011.png`. The images can be any size or aspect ratio: `load_boss_icon` crops the centre square and resizes it to 100×100, keeping the alpha channel (premultiplied, so edges don't darken). `flatten_boss_icon` fills transparent areas with that battle's boss element color from `color_table`; the optional `::icon_bgcolor=<color_table name>` forces a single color for every icon.
   - `::<player_id>=<display name>` sets a player's display name.
 - An action line has the form `player_id,wait_seconds,boss,battle_seconds[,score_rate]`.
   - `boss` must be one of `1st_boss`, `2nd_boss`, `3rd_boss`, or `Realm_boss`.
