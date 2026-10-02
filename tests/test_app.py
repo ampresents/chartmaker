@@ -226,6 +226,59 @@ def test_notify_without_tts(client, sent):
     assert sent[0][1]["content"] == "Alpha01、準備して下さい"
 
 
+def test_notify_pause(client, sent):
+    sid = create_notify_session(client)
+    url = "/api/sessions/{}/notify/pause".format(sid)
+    assert client.get("/api/sessions/" + sid).json["notify_paused"] is False
+    r = client.post(url, json={"paused": True})
+    assert r.status_code == 200 and r.json["notify_paused"] is True
+    assert client.get("/api/sessions/" + sid).json["notify_paused"] is True
+    # 止めている間は送らず、通知済みにもしない
+    assert notify(client, sid, 0).json["sent"] == []
+    assert sent == []
+    client.post(url, json={"paused": False})
+    assert notify(client, sid, 0).json["sent"] == [0]
+    assert len(sent) == 1
+
+
+def test_notify_pause_errors(client):
+    sid = create_notify_session(client)
+    assert client.post("/api/sessions/{}/notify/pause".format(sid), json={"paused": 1}).status_code == 400
+    plain = create_session(client)
+    assert client.post("/api/sessions/{}/notify/pause".format(plain), json={"paused": True}).status_code == 409
+
+
+def test_session_delete(client, sent, deleted):
+    sid = create_notify_session(client)
+    notify(client, sid, 0)  # メッセージ m1 がまだ残っている
+    r = client.delete("/api/sessions/" + sid)
+    assert r.status_code == 200 and r.json["cleared"] == 1
+    assert deleted == [(WEBHOOK, "m1")]
+    # 破棄後はどの操作も 404 になり、通知は送られない
+    assert client.get("/api/sessions/" + sid).status_code == 404
+    assert notify(client, sid, 1).status_code == 404
+    assert len(sent) == 1
+    assert client.delete("/api/sessions/" + sid).status_code == 404
+
+
+def test_session_delete_without_discord(client, deleted):
+    sid = create_session(client)
+    assert client.delete("/api/sessions/" + sid).json["cleared"] == 0
+    assert deleted == []
+
+
+def test_notify_deletes_message_if_session_was_discarded(client, deleted, monkeypatch):
+    # 送っている間に破棄されたら、メッセージ ID を覚える先が無いのですぐ消す
+    sid = create_notify_session(client)
+
+    def send(url, payload):
+        client.delete("/api/sessions/" + sid)
+        return "m9"
+    monkeypatch.setattr(app_module, "send_discord", send)
+    assert notify(client, sid, 0).status_code == 404
+    assert deleted == [(WEBHOOK, "m9")]
+
+
 def test_notify_groups_players(client, sent):
     sid = create_notify_session(client)
     notify(client, sid, 1)
