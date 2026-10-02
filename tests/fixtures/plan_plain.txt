@@ -1,0 +1,12 @@
+# テスト用の作戦 (表示オプションなし、残り時間表示)
+::comment=plain
+::1st_boss=white
+::2nd_boss=red
+::3rd_boss=green
+::Realm_boss=blue
+::display_remaining
+Alpha01,5,1st_boss,60
+Alpha01,0,2nd_boss,60
+Alpha01,0,3rd_boss,60,0.25
+Alpha01,0,Realm_boss,120
+Beta01,3500,Realm_boss,170

@@ -10,3 +10,5 @@ deploy/
 *.ipynb
 README.md
 CLAUDE.md
+tests/
+requirements-dev.txt
