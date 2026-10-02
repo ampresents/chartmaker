@@ -246,7 +246,7 @@ def render_png(text, config):
             return f.read()
 
 
-# ---------------------------------------------------------------- 進捗管理
+# ---------------------------------------------------------------- 進行管理
 
 @app.get("/tracker")
 @app.get("/tracker/<sid>")
@@ -277,7 +277,7 @@ def handle_conflict(e):
 def api_session_create():
     _, commands, constants = parse_request()
     config = load_config()
-    # 進捗管理では画像が無くても表示できるので確認しない
+    # 進行管理では画像が無くても表示できるので確認しない
     setting = validate(commands, constants, config, check_images=False)
     start = (request.get_json(silent=True) or {}).get("start_epoch_ms")
     if not isinstance(start, (int, float)):

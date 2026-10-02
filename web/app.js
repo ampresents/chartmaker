@@ -57,7 +57,7 @@ function parseTime(v) {
   return null;
 }
 
-// ゲーム開始のローカル時刻 HH:MM（進捗管理で使う）
+// ゲーム開始のローカル時刻 HH:MM（進行管理で使う）
 const validStartTime = (v) => /^\d{1,2}:\d{2}$/.test(String(v ?? ""));
 
 function timelag(st = state) { return parseInt(st.constants.timelag) || 0; }
@@ -588,8 +588,8 @@ function renderSide() {
       const len = blockLen();
       const wait = a.start - (ai ? p.actions[ai - 1].start + len : 0);
       parts.push(h("h3", {}, `戦闘 #${ai + 1}`),
-        field("出撃 (push)", h("input", {
-          value: clock(a.start), disabled: !!a.locked, title: remaining() ? "残り時間を mm:ss または秒数で" : "mm:ss または秒数",
+        field("戦闘開始", h("input", {
+          value: clock(a.start), disabled: !!a.locked, title: remaining() ? "残り時間がこの時にバトル開始の予定" : "経過時間がこの時にバトル開始の予定",
           onchange: (e) => {
             let t = parseTime(e.target.value);
             if (t === null) { showStatus("時刻は mm:ss か秒数で入力してください"); renderSide(); return; }
@@ -597,7 +597,7 @@ function renderSide() {
             mutate(() => slideTo(p.actions, ai, t));
           },
         })),
-        field("待機秒数", h("input", {
+        field("待機時間(秒)", h("input", {
           type: "number", min: 0, value: wait, disabled: !!a.locked,
           onchange: (e) => mutate(() => slideTo(p.actions, ai, a.start + (parseInt(e.target.value) || 0) - wait)),
         })),
@@ -664,7 +664,7 @@ function renderSettings() {
     field("コメント", h("input", { value: c.comment, onchange: (e) => mutate(() => { c.comment = sanitize(e.target.value); }) })),
     field("開始時刻", h("input", {
       type: "time", value: validStartTime(c.start_time) ? c.start_time.padStart(5, "0") : "",
-      title: "ゲームの開始時刻。進捗管理で使います",
+      title: "ゲームの開始時刻。進行管理で使います",
       onchange: (e) => mutate(() => { c.start_time = e.target.value; }),
     })),
     field("ギャップ(秒)", h("input", {
@@ -779,7 +779,7 @@ function bindUI() {
   $("#zoom").value = String(scale);
   $("#zoom").addEventListener("change", (e) => { scale = parseFloat(e.target.value); save(); render(); });
   $("#btn-render").addEventListener("click", renderImage);
-  // 進捗管理の作成画面へ今の作戦を引き継ぐ
+  // 進行管理の作成画面へ今の作戦を引き継ぐ
   $("#btn-tracker").addEventListener("click", () => {
     try { localStorage.setItem("chartmaker.tracker.text", toText()); } catch (e) { /* 引き継げなくても画面は開く */ }
     window.open("/tracker", "_blank");

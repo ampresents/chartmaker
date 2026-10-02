@@ -1,4 +1,4 @@
-# 進捗管理セッションの保存先
+# 進行管理セッションの保存先
 # ローカルではプロセス内メモリ、Cloud Run では Firestore (環境変数 STORE=firestore) を使う。
 # どちらも update(id, fn) で fn に現在の doc を渡し、fn が返した doc を version+1 して保存する。
 import copy
@@ -91,7 +91,7 @@ class FirestoreStore:
 class CachedStore:
     """get の結果を ttl 秒だけインスタンス内で使い回す。
 
-    進捗管理の画面は毎秒ポーリングするので、そのままでは Firestore の読み取りが端末数に比例する。
+    進行管理の画面は毎秒ポーリングするので、そのままでは Firestore の読み取りが端末数に比例する。
     同じインスタンスに来た同じセッションの get を 1 回の読み取りにまとめる。
     update は常に元のストアで (トランザクションで) 行い、結果をキャッシュに入れる。
     別インスタンスでの更新が見えるのは最大 ttl 秒遅れる。

@@ -1,5 +1,5 @@
 "use strict";
-// chartmaker 進捗管理
+// chartmaker 進行管理
 // サーバーのセッション (作戦 plan と討伐イベント events) を 1 秒ごとに取得し、表示はすべて手元で計算する。
 
 const REGULAR = BOSSES.slice(0, 3);
