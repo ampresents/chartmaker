@@ -137,11 +137,3 @@ body.resizing { cursor: col-resize; user-select: none; }
   display: flex; flex-direction: column; gap: 10px; padding: 12px; min-height: 0; }
 .modal-img { flex: 1; overflow: auto; background: #000; }
 .modal-img img { width: 100%; display: block; }
-
-/* 広告枠。読み込み前から高さを確保して、表示されたときにレイアウトが動かないようにする */
-.ad-box { flex: none; --ad-h: 250px; padding: 4px 12px 8px; border-top: 1px solid var(--line); }
-.ad-box[hidden] { display: none; }
-.ad-label { display: block; color: var(--muted); font-size: 10px; margin-bottom: 2px; }
-.ad-box ins.adsbygoogle { display: block; width: 100%; height: var(--ad-h); overflow: hidden; }
-.side-foot { flex: none; padding: 4px 12px 6px; font-size: 11px; border-top: 1px solid var(--line); }
-.side-foot a, .setup-box a { color: var(--muted); }
