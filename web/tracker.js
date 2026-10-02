@@ -8,6 +8,7 @@ const TICK_MS = 200;
 const NEXT_COUNT = 8;
 const HANDOFF_KEY = "chartmaker.tracker.text";
 const WEBHOOK_KEY = "chartmaker.tracker.webhook";
+const TTS_KEY = "chartmaker.tracker.tts"; // "0" なら読み上げなし
 
 let plan = null;
 let events = [];
@@ -190,7 +191,9 @@ function buildBoard() {
   $("#board").hidden = false;
   $("#btn-share").hidden = false;
   if (plan.notify_lead) {
-    $("#notify").textContent = `🔊 Discord 通知: ${plan.notify_lead}秒前`;
+    $("#notify").textContent = plan.notify_tts === false
+      ? `💬 Discord 通知 (読み上げなし): ${plan.notify_lead}秒前`
+      : `🔊 Discord 読み上げ: ${plan.notify_lead}秒前`;
     $("#notify").hidden = false;
   }
 }
@@ -427,7 +430,10 @@ function showSetup() {
     localStorage.removeItem(HANDOFF_KEY);
   } catch (e) { /* 引き継ぎなし */ }
   setupText(text);
-  try { $("#setup-webhook").value = localStorage.getItem(WEBHOOK_KEY) || ""; } catch (e) { /* 覚えていない */ }
+  try {
+    $("#setup-webhook").value = localStorage.getItem(WEBHOOK_KEY) || "";
+    $("#setup-tts").checked = localStorage.getItem(TTS_KEY) !== "0";
+  } catch (e) { /* 覚えていない */ }
   $("#setup-text").addEventListener("change", (e) => setupText(e.target.value));
   $("#setup-file").addEventListener("change", async (e) => {
     const f = e.target.files[0];
@@ -444,8 +450,10 @@ function showSetup() {
       const j = await api("POST", "/api/sessions", {
         text: $("#setup-text").value, start_epoch_ms: start,
         discord_webhook: webhook, notify_lead: Number($("#setup-lead").value),
+        notify_tts: $("#setup-tts").checked,
       });
       try {
+        localStorage.setItem(TTS_KEY, $("#setup-tts").checked ? "1" : "0");
         if (webhook) localStorage.setItem(WEBHOOK_KEY, webhook);
         else localStorage.removeItem(WEBHOOK_KEY);
       } catch (e) { /* 覚えなくてよい */ }

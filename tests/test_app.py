@@ -186,6 +186,7 @@ def notify(client, sid, *battles):
     {"discord_webhook": "https://discord.com/api/webhooks/1/abc?x=1"},
     {"discord_webhook": WEBHOOK, "notify_lead": 4},
     {"discord_webhook": WEBHOOK, "notify_lead": "30"},
+    {"discord_webhook": WEBHOOK, "notify_tts": "false"},
 ])
 def test_notify_create_errors(client, body):
     r = client.post("/api/sessions", json=dict(text=PLAN, start_epoch_ms=0, **body))
@@ -197,6 +198,7 @@ def test_notify_webhook_is_not_returned(client):
     r = client.get("/api/sessions/" + sid)
     assert WEBHOOK not in r.get_data(as_text=True)
     assert r.json["plan"]["notify_lead"] == 20
+    assert r.json["plan"]["notify_tts"] is True
     assert client.get("/api/sessions/" + create_session(client)).json["plan"]["notify_lead"] is None
 
 
@@ -213,6 +215,15 @@ def test_notify_sends_once(client, sent):
     assert payload["content"] == "Alpha01、準備して下さい"
     assert notify(client, sid, 1).json["sent"] == [1]
     assert len(sent) == 2
+
+
+def test_notify_without_tts(client, sent):
+    # 読み上げをオフにすると、同じ本文をただのテキストとして送る
+    sid = create_notify_session(client, notify_tts=False)
+    assert client.get("/api/sessions/" + sid).json["plan"]["notify_tts"] is False
+    notify(client, sid, 0)
+    assert sent[0][1]["tts"] is False
+    assert sent[0][1]["content"] == "Alpha01、準備して下さい"
 
 
 def test_notify_groups_players(client, sent):

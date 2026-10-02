@@ -313,6 +313,7 @@ def api_session_create():
     }
     discord = discord_setting(request.get_json(silent=True) or {})
     plan["notify_lead"] = discord["lead"] if discord else None
+    plan["notify_tts"] = discord["tts"] if discord else None
     # Webhook URL は plan の外に置き、GET で返さない
     sid = store.create({"plan": plan, "events": [], "discord": discord, "notified": []})
     return jsonify(id=sid)
@@ -332,8 +333,11 @@ def discord_setting(body):
         raise InputError("Discord の Webhook URL (https://discord.com/api/webhooks/...) を指定してください")
     lead = body.get("notify_lead", NOTIFY_LEAD[2])
     if not isinstance(lead, int) or isinstance(lead, bool) or not NOTIFY_LEAD[0] <= lead <= NOTIFY_LEAD[1]:
-        raise InputError("読み上げは {}〜{} 秒前で指定してください".format(*NOTIFY_LEAD[:2]))
-    return {"webhook": webhook.strip(), "lead": lead}
+        raise InputError("通知は {}〜{} 秒前で指定してください".format(*NOTIFY_LEAD[:2]))
+    tts = body.get("notify_tts", True)  # False なら読み上げないただのテキストで送る
+    if not isinstance(tts, bool):
+        raise InputError("不正な指定です")
+    return {"webhook": webhook.strip(), "lead": lead, "tts": tts}
 
 
 def discord_request(method, url, payload=None):
@@ -413,7 +417,7 @@ def api_session_undo(sid):
 @app.post("/api/sessions/<sid>/notify")
 @rate_limit("kill", LIMIT_KILL)
 def api_session_notify(sid):
-    """出撃が近い戦闘をまとめて Discord の TTS メッセージで知らせる。複数の端末から来ても 1 戦 1 回だけ送る"""
+    """出撃が近い戦闘をまとめて Discord のメッセージ (既定は TTS) で知らせる。複数の端末から来ても 1 戦 1 回だけ送る"""
     battles = (request.get_json(silent=True) or {}).get("battles")
     if (not isinstance(battles, list) or not 0 < len(battles) <= MAX_NOTIFY_BATTLES
             or not all(isinstance(b, int) and not isinstance(b, bool) for b in battles)):
@@ -442,7 +446,7 @@ def api_session_notify(sid):
                 names.append(name)
         payload = {
             "content": "{}、準備して下さい".format("、".join(names)),
-            "tts": True,
+            "tts": doc["discord"].get("tts", True),  # tts を持たない古いセッションは読み上げる
             "allowed_mentions": {"parse": []},  # 名前に @everyone などがあっても通知しない
         }
         try:
