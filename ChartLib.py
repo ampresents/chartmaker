@@ -43,10 +43,11 @@ def load_boss_icon(path, size=BOSS_ICON_SIZE):
         icon[:, :, 3] = np.minimum(icon[:, :, 3], 1.)
     return icon[:, :, :3], icon[:, :, 3:]
 
-# アイコンの透明部分を bgcolor (BGR) で塗って不透明な画像にする
-def flatten_boss_icon(icon, bgcolor):
+# アイコンを background に重ねて不透明な画像にする
+# background は下地の画像 (H×W×3) か、単色の BGR
+def flatten_boss_icon(icon, background):
     color, alpha = icon
-    return np.clip(np.rint(color + np.array(bgcolor, dtype=np.float32) * (1. - alpha)), 0, 255).astype(np.uint8)
+    return np.clip(np.rint(color + np.asarray(background, dtype=np.float32) * (1. - alpha)), 0, 255).astype(np.uint8)
 
 # 構文解析
 def format_clock(sec, remaining=False):
@@ -274,9 +275,10 @@ def generate_chart(src, dst, config, margin_top=160):
             cv2.circle(base, center=(x+230, detail["battle_start"]+5+margin_top), radius=10, color=color_table[advantage[boss_color]], thickness=-1, lineType=cv2.LINE_4, shift=0)
         # BOSSアイコン
         if "display_boss" in setting:
-            # 透明部分は、そのボスの属性色（::icon_bgcolor があればその色）で塗る
-            boss_img = flatten_boss_icon(boss_images[detail["action"]], color_table[setting.get("icon_bgcolor") or boss_color])
-            base[detail["battle_start"]+margin_top:detail["battle_start"]+margin_top+boss_img.shape[0],x:x+boss_img.shape[1],:] = boss_img
+            # 透明部分からは下地（戦闘中のボス色やクールタイムのグレー）が見える。::icon_bgcolor があればその色で塗る
+            icon = boss_images[detail["action"]]
+            area = base[detail["battle_start"]+margin_top:detail["battle_start"]+margin_top+icon[0].shape[0],x:x+icon[0].shape[1],:]
+            area[:] = flatten_boss_icon(icon, color_table[setting["icon_bgcolor"]] if setting.get("icon_bgcolor") else area)
 
     # 罫線
     cv2.line(base, pt1=(100, margin_top),        pt2=(MAX_PLAYERS*246+120, margin_top),        color=config["grid_color"]["start"], thickness=3, lineType=cv2.LINE_4)
