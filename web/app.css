@@ -36,6 +36,8 @@ select, input, textarea { background: #0c0c0e; border: 1px solid var(--line); bo
 .toolbar h1 img { height: 28px; width: auto; mix-blend-mode: lighten; }
 .sep { width: 1px; height: 20px; background: var(--line); }
 .grow { flex: 1; }
+.toolbar .support { line-height: 1.4; color: #ff9db5; border-color: #ff9db5; }
+.toolbar .support[hidden] { display: none; }
 #summary { color: var(--muted); }
 #summary b { color: var(--fg); }
 

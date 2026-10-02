@@ -26,6 +26,11 @@ LIMIT_KILL = (120, 60)        # 討伐・取り消し
 RENDER_SLOTS = 2              # 画像生成 1 回で数百 MB 使うので同時に動かす数を絞る
 RENDER_WAIT = 20              # 空きを待つ秒数。過ぎたら 503
 
+# 画面右上に出す支援 (寄付) ページの URL。https 以外や未設定なら出さない
+SUPPORT_URL = os.environ.get("SUPPORT_URL", "").strip()
+if not SUPPORT_URL.startswith("https://"):
+    SUPPORT_URL = ""
+
 WEB_DIR = os.path.join(BASE_DIR, "web")
 IMAGE_DIR = os.path.join(BASE_DIR, "image")
 
@@ -175,6 +180,11 @@ def image(name):
 def api_config():
     images = sorted(os.path.basename(p) for p in glob.glob(os.path.join(IMAGE_DIR, "*.png")))
     return jsonify(config=load_config(), images=["/image/" + n for n in images])
+
+
+@app.get("/api/site")
+def api_site():
+    return jsonify(support_url=SUPPORT_URL)
 
 
 @app.post("/api/parse")
