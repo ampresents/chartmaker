@@ -20,6 +20,8 @@
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
   font: 13px/1.4 "Meiryo", "Hiragino Sans", system-ui, sans-serif; }
 body { display: flex; flex-direction: column; }
+/* hidden 属性を display を指定したクラス (button, .btn など) より優先する */
+[hidden] { display: none !important; }
 button, .btn, select, input, textarea { font: inherit; color: var(--fg); }
 button, .btn { background: var(--panel2); border: 1px solid var(--line); border-radius: 4px;
   padding: 4px 10px; cursor: pointer; text-decoration: none; display: inline-block; }
@@ -135,3 +137,11 @@ body.resizing { cursor: col-resize; user-select: none; }
   display: flex; flex-direction: column; gap: 10px; padding: 12px; min-height: 0; }
 .modal-img { flex: 1; overflow: auto; background: #000; }
 .modal-img img { width: 100%; display: block; }
+
+/* 広告枠。読み込み前から高さを確保して、表示されたときにレイアウトが動かないようにする */
+.ad-box { flex: none; --ad-h: 250px; padding: 4px 12px 8px; border-top: 1px solid var(--line); }
+.ad-box[hidden] { display: none; }
+.ad-label { display: block; color: var(--muted); font-size: 10px; margin-bottom: 2px; }
+.ad-box ins.adsbygoogle { display: block; width: 100%; height: var(--ad-h); overflow: hidden; }
+.side-foot { flex: none; padding: 4px 12px 6px; font-size: 11px; border-top: 1px solid var(--line); }
+.side-foot a, .setup-box a { color: var(--muted); }
