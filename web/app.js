@@ -582,8 +582,8 @@ function renderSide() {
           type: "number", min: 1, max: MAX_BATTLE, value: a.battle,
           onchange: (e) => mutate(() => { a.battle = clamp(parseInt(e.target.value) || 1, 1, MAX_BATTLE); }),
         })),
-        field("撃破率", h("input", {
-          type: "number", min: 0, max: 1, step: 0.05, value: a.rate, title: "1 未満なら市松模様と % を表示します",
+        field("与ダメージ率", h("input", {
+          type: "number", min: 0, max: 1, step: 0.05, value: a.rate, title: "ワンパンは 1 となります。1.0 未満なら市松模様と % を表示します",
           onchange: (e) => mutate(() => { const r = parseFloat(e.target.value); a.rate = Number.isFinite(r) ? r : 1; }),
         })),
         d ? h("p", { class: "hint" }, `戦闘 ${clock(d.battle_start)}–${clock(d.battle_end)}　再出撃 ${clock(d.cool_off)}　Lv${d.level}　${fmt(d.est_score)} / ${fmt(d.score)}`) : null,
@@ -640,9 +640,9 @@ function renderSettings() {
       title: "ゲームの開始時刻。進捗管理で使います",
       onchange: (e) => mutate(() => { c.start_time = e.target.value; }),
     })),
-    field("タイムラグ秒", h("input", {
+    field("ギャップ(秒)", h("input", {
       type: "number", min: 0, value: timelag(),
-      title: "変更しても各戦闘の待機秒数は保たれます",
+      title: "戦闘開始ボタン押下と再出撃可能時間のカウント開始のズレを見積もる。（推奨 0～3秒）",
       onchange: (e) => mutate(() => setTimelag(Math.max(0, parseInt(e.target.value) || 0))),
     })),
     h("h3", {}, "ボス（属性色・画像）"),
