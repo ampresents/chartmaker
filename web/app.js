@@ -120,6 +120,29 @@ function stateFromParsed(commands, constants) {
   return st;
 }
 
+// ロックは直前の行動行に付く「#lock」コメント行として txt に残す (parse はコメントとして読み飛ばす)
+const LOCK_MARK = "#lock";
+
+// txt の #lock 行を読み、ロックする行動を「ID → 何番目の行動か」の集合で返す (行の判定は ChartLib.parse と同じ)
+function lockedInText(text) {
+  const locked = new Set();
+  const count = {};
+  let last = null;
+  for (const line of text.split(/\r?\n/)) {
+    if (line.startsWith("#")) {
+      if (line.trim() === LOCK_MARK && last) locked.add(last);
+      continue;
+    }
+    if (line.startsWith("::")) continue;
+    const item = line.split(",");
+    if (item.length <= 1) continue;
+    const id = item[0];
+    count[id] = (count[id] || 0) + 1;
+    last = `${id}:${count[id] - 1}`;
+  }
+  return locked;
+}
+
 // 状態から今のルールどおりの txt を作る
 function toText(st = state) {
   const c = st.constants;
@@ -153,6 +176,7 @@ function toText(st = state) {
       let line = `${p.id},${a.start - prevEnd},${a.boss},${a.battle}`;
       if (a.rate !== 1) line += `,${a.rate}`;
       out.push(line);
+      if (a.locked) out.push(LOCK_MARK);
       prevEnd = a.start + len;
     }
   }
@@ -483,7 +507,10 @@ async function fetchDetail() {
 async function importText(text) {
   try {
     const j = await (await api("/api/parse", { text })).json();
-    replaceState(stateFromParsed(j.commands, j.constants));
+    const st = stateFromParsed(j.commands, j.constants);
+    const locked = lockedInText(text);
+    st.players.forEach((p) => p.actions.forEach((a, i) => { if (locked.has(`${p.id}:${i}`)) a.locked = true; }));
+    replaceState(st);
     textDirty = false;
     updateText();
     showStatus(null);
@@ -969,6 +996,56 @@ function download(name, blob) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// ---------------------------------------------------------------- 共有 URL
+// 作戦の txt を deflate して base64url にし、URL の #plan= に入れる。
+// ハッシュはサーバーに送られないので、共有してもサーバーには何も残らない
+
+const SHARE_PREFIX = "#plan=";
+
+async function pipeBytes(bytes, stream) {
+  return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
+}
+
+async function encodePlan(text) {
+  const bytes = await pipeBytes(new TextEncoder().encode(text), new CompressionStream("deflate-raw"));
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function decodePlan(code) {
+  const bin = atob(code.replace(/-/g, "+").replace(/_/g, "/"));
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(await pipeBytes(bytes, new DecompressionStream("deflate-raw")));
+}
+
+async function copyShareUrl() {
+  const btn = $("#btn-share");
+  const url = `${location.origin}${location.pathname}${SHARE_PREFIX}${await encodePlan(toText())}`;
+  await navigator.clipboard.writeText(url);
+  showStatus(null);
+  btn.textContent = "コピーしました";
+  setTimeout(() => { btn.textContent = "共有URL"; }, 1500);
+}
+
+// URL に #plan= があれば読み込み、ハッシュは消す (再読み込みで何度も取り込まないように)
+async function loadSharedPlan() {
+  if (!location.hash.startsWith(SHARE_PREFIX)) return;
+  const code = location.hash.slice(SHARE_PREFIX.length);
+  history.replaceState(null, "", location.pathname + location.search);
+  let text;
+  try {
+    text = await decodePlan(code);
+  } catch (e) {
+    showStatus("共有URLの作戦を読み込めませんでした（URLが途中で切れている可能性があります）");
+    return;
+  }
+  if (text === toText()) return;
+  const hasPlan = state.players.some((p) => p.actions.length);
+  if (hasPlan && !confirm("共有URLの作戦を開きますか？ 今の作戦は「元に戻す」で復元できます。")) return;
+  await importText(text);
+}
+
 function bindUI() {
   document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
   $("#btn-new").addEventListener("click", () => { if (confirm("今の作戦を破棄して新規作成しますか？（元に戻すで復元できます）")) replaceState(defaultState()); });
@@ -987,6 +1064,9 @@ function bindUI() {
     try { localStorage.setItem("chartmaker.tracker.text", toText()); } catch (e) { /* 引き継げなくても画面は開く */ }
     window.open("/tracker", "_blank");
   });
+  $("#btn-share").addEventListener("click", () => copyShareUrl().catch((e) => showStatus(`共有URLを作れませんでした: ${e.message}`)));
+  // 開いたままのタブに別の共有URLを貼った場合
+  window.addEventListener("hashchange", loadSharedPlan);
   $("#btn-close-modal").addEventListener("click", () => { $("#modal").hidden = true; });
   $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") $("#modal").hidden = true; });
 
@@ -1099,6 +1179,7 @@ async function init() {
   state = load() || defaultState();
   bindUI();
   afterChange();
+  await loadSharedPlan();
 }
 
 init().catch((e) => showStatus(`初期化に失敗しました: ${e.message}`));
