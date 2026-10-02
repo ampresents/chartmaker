@@ -15,7 +15,8 @@ let IMAGES = [];
 let state = null;
 let undoStack = [];
 let redoStack = [];
-let selection = null;      // {p, a}  a は null ならプレイヤー選択
+let selection = null;      // {p, a}  a は null ならプレイヤー選択。複数選択中は Shift+クリックの起点
+let multi = [];            // 複数選択中の戦闘 [{p, a}, ...]（2 個以上のときだけ使い、1 個以下なら空）
 let scale = 0.25;          // px / 秒
 let details = [];          // /api/detail の結果 (出力順)
 let detailTimer = null;
@@ -208,10 +209,74 @@ function replaceState(st) {
 }
 
 function fixSelection() {
+  if (!selection || selection.a === null) multi = [];
+  if (multi.length) {
+    const list = multi.filter((s) => state.players[s.p] && state.players[s.p].actions[s.a]);
+    if (list.length !== multi.length) setSelection(list, selection);
+  }
   if (!selection) return;
   const p = state.players[selection.p];
   if (!p) selection = null;
   else if (selection.a !== null && !p.actions[selection.a]) selection.a = null;
+}
+
+// ---------------------------------------------------------------- 選択
+
+// 選択中の戦闘の一覧。単独選択なら 1 個、プレイヤー選択や未選択なら空
+function selectedBlocks() {
+  if (multi.length) return multi;
+  return selection && selection.a !== null ? [selection] : [];
+}
+
+// 選択を list にする。2 個以上なら複数選択で、anchor が含まれていればそれを Shift+クリックの起点に残す
+function setSelection(list, anchor) {
+  if (list.length > 1) {
+    multi = list.map(({ p, a }) => ({ p, a }));
+    const keep = anchor && list.find((s) => s.p === anchor.p && s.a === anchor.a);
+    selection = { ...(keep || list[list.length - 1]) };
+  } else {
+    multi = [];
+    selection = list.length ? { p: list[0].p, a: list[0].a } : null;
+  }
+}
+
+function clearSelection() { setSelection([]); }
+
+// Ctrl+クリック: 1 個ずつ追加・解除
+function toggleSelect(pi, ai) {
+  const list = selectedBlocks().slice();
+  const i = list.findIndex((s) => s.p === pi && s.a === ai);
+  if (i >= 0) list.splice(i, 1);
+  else list.push({ p: pi, a: ai });
+  setSelection(list, i >= 0 ? selection : { p: pi, a: ai });
+}
+
+// Shift+クリック: 起点と同じ列ならその間をすべて選ぶ。別の列なら単独選択
+function rangeSelect(pi, ai) {
+  const from = selection;
+  if (!from || from.a === null || from.p !== pi) { setSelection([{ p: pi, a: ai }]); return; }
+  const list = [];
+  for (let a = Math.min(from.a, ai); a <= Math.max(from.a, ai); a++) list.push({ p: pi, a });
+  setSelection(list, from);
+}
+
+// 選択中の戦闘すべてに fn を適用する
+function eachSelected(fn) {
+  selectedBlocks().forEach(({ p, a }) => fn(state.players[p].actions[a]));
+}
+
+// ロック: 1 個でも未ロックがあれば全部ロック、全部ロック済みなら全部解除
+function toggleLockSelected() {
+  const lock = selectedBlocks().some(({ p, a }) => !state.players[p].actions[a].locked);
+  eachSelected((x) => { if (lock) x.locked = true; else delete x.locked; });
+}
+
+// 後ろの戦闘から消して、残りの番号がずれないようにする。1 個だけならそのプレイヤーの選択に戻す
+function deleteSelected() {
+  const list = selectedBlocks().slice().sort((x, y) => x.p - y.p || y.a - x.a);
+  list.forEach(({ p, a }) => state.players[p].actions.splice(a, 1));
+  setSelection([]);
+  if (list.length === 1) selection = { p: list[0].p, a: null };
 }
 
 function save() {
@@ -258,6 +323,7 @@ function slideTo(actions, k, t) {
 // 矢印キーで選択中のブロックを dt 秒ずらす（押し出しは slideTo と同じ）。
 // 同じブロックへの連続操作（1 秒以内、間に他の変更なし）は 1 回の Undo にまとめる
 function nudge(dt) {
+  if (multi.length) return;  // まとめての移動は未対応
   const { p, a } = selection;
   const act = state.players[p].actions[a];
   if (act.locked) return;
@@ -300,7 +366,7 @@ function addActionAt(p, t) {
   if (hi < lo) { showStatus("ここには入る余地がありません（前後のブロックと重なります）"); return; }
   const prev = acts[i - 1] || acts[i];
   const a = { start: clamp(t, lo, hi), boss: prev ? prev.boss : "1st_boss", battle: prev ? prev.battle : 30, rate: 1 };
-  mutate(() => { acts.splice(i, 0, a); selection = { p, a: i }; });
+  mutate(() => { acts.splice(i, 0, a); setSelection([{ p, a: i }]); });
 }
 
 function nextFreeId(team) {
@@ -432,6 +498,7 @@ function render() {
     axisBody.append(h("div", { class: "tick" + (m === 30 ? " half" : ""), style: { top: `${m * 60 * scale}px` } }, `${String(remaining() ? 60 - m : m).padStart(2, "0")}:00`));
   }
   const cols = [h("div", { class: "axis" }, h("div", { class: "col-head" }), axisBody)];
+  const selKeys = new Set(selectedBlocks().map((s) => `${s.p}:${s.a}`));
 
   state.players.forEach((p, pi) => {
     const selP = selection && selection.p === pi;
@@ -439,7 +506,7 @@ function render() {
     const head = h("div", {
       class: "col-head" + (selP && selection.a === null ? " selected" : ""),
       title: p.id,
-      onclick: () => { selection = { p: pi, a: null }; render(); renderSide(); switchTab("select"); },
+      onclick: () => { setSelection([]); selection = { p: pi, a: null }; render(); renderSide(); switchTab("select"); },
     },
     h("div", { class: "team", style: { color: teamColor ? bgr(teamColor) : "" } }, teamColor ? teamOf(p.id) : " "),
     h("div", { class: "name" }, p.name || p.id));
@@ -447,6 +514,13 @@ function render() {
     const body = h("div", {
       class: "col-body",
       style: { height: `${bodyH}px` },
+      // 空いた場所を押すと選択を解除する
+      onpointerdown: (e) => {
+        if (e.target !== body || e.button !== 0 || !selection) return;
+        clearSelection();
+        render();
+        renderSide();
+      },
       ondblclick: (e) => {
         if (e.target !== body) return;
         addActionAt(pi, Math.round((e.offsetY / scale) - lag));
@@ -459,14 +533,16 @@ function render() {
       const d = dmap.get(`${pi}:${ai}`);
       const bossColor = colors[state.constants[a.boss]];
       const block = h("div", {
-        class: "block" + (selP && selection.a === ai ? " selected" : "") + (a.locked ? " locked" : ""),
+        class: "block" + (selKeys.has(`${pi}:${ai}`) ? " selected" : "") + (a.locked ? " locked" : ""),
         style: { top: `${a.start * scale}px`, height: `${len * scale}px` },
         onpointerdown: (e) => startDrag(e, pi, ai, "move"),
-        // 右クリックでボスを 1st → 2nd → 3rd → Realm → 1st の順に切り替える
+        // 右クリックでボスを 1st → 2nd → 3rd → Realm → 1st の順に切り替える。
+        // 複数選択中のブロックなら、選択中すべてをこのブロックの次のボスにそろえる
         oncontextmenu: (e) => {
           e.preventDefault();
-          selection = { p: pi, a: ai };
-          mutate(() => { a.boss = BOSSES[(BOSSES.indexOf(a.boss) + 1) % BOSSES.length]; });
+          const next = BOSSES[(BOSSES.indexOf(a.boss) + 1) % BOSSES.length];
+          if (!multi.length || !selKeys.has(`${pi}:${ai}`)) setSelection([{ p: pi, a: ai }]);
+          mutate(() => eachSelected((x) => { x.boss = next; }));
           switchTab("select");
         },
       });
@@ -495,7 +571,7 @@ function render() {
   });
 
   if (state.players.length < MAX_PLAYERS) {
-    cols.push(h("div", { class: "col add" }, h("button", { title: "プレイヤーを追加", onclick: () => { selection = null; renderSide(); switchTab("select"); $("#add-name")?.focus(); } }, "＋")));
+    cols.push(h("div", { class: "col add" }, h("button", { title: "プレイヤーを追加", onclick: () => { clearSelection(); render(); renderSide(); switchTab("select"); $("#add-name")?.focus(); } }, "＋")));
   }
   tl.replaceChildren(...cols);
 }
@@ -504,6 +580,15 @@ function startDrag(e, pi, ai, mode) {
   if (e.button !== 0) return;
   e.preventDefault();
   e.stopPropagation();
+  // Ctrl+クリックで追加・解除、Shift+クリックで同じ列の範囲選択（ドラッグはしない）
+  if (mode === "move" && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+    if (e.shiftKey) rangeSelect(pi, ai);
+    else toggleSelect(pi, ai);
+    render();
+    renderSide();
+    switchTab("select");
+    return;
+  }
   const before = snapshot();
   const acts = state.players[pi].actions;
   const a = acts[ai];
@@ -520,7 +605,7 @@ function startDrag(e, pi, ai, mode) {
     const dt = Math.round((ev.clientY - y0) / scale);
     if (mode === "move") slideTo(acts, ai, start0 + dt);
     else a.battle = clamp(battle0 + dt, 1, MAX_BATTLE);
-    selection = { p: pi, a: ai };
+    setSelection([{ p: pi, a: ai }]);
     render();
     tip.hidden = false;
     tip.style.left = `${ev.clientX + 14}px`;
@@ -536,7 +621,7 @@ function startDrag(e, pi, ai, mode) {
     document.removeEventListener("pointercancel", onUp);
     tip.remove();
     if (moved) { commit(before); afterChange(); }
-    else { selection = { p: pi, a: ai }; render(); renderSide(); switchTab("select"); }
+    else { setSelection([{ p: pi, a: ai }]); render(); renderSide(); switchTab("select"); }
   };
   document.addEventListener("pointermove", onMove);
   document.addEventListener("pointerup", onUp);
@@ -570,11 +655,55 @@ function bossSelect(value) {
     h("option", { value: b, selected: b === value }, `${BOSS_LABEL[b]} (${state.constants[b]})`)));
 }
 
+// 複数選択中のサイドパネル。値がそろっていない欄は空欄（ボスは「混在」）で表示し、入力した値を全部に設定する
+function renderMultiSide() {
+  const acts = selectedBlocks().map(({ p, a }) => state.players[p].actions[a]);
+  const same = (k) => (acts.every((x) => x[k] === acts[0][k]) ? acts[0][k] : null);
+  const locked = acts.filter((x) => x.locked).length;
+  const boss = same("boss");
+  const bossSel = bossSelect(boss);
+  if (boss === null) bossSel.prepend(h("option", { value: "", selected: true, disabled: true }, "（混在）"));
+  bossSel.title = "1〜4 キー、またはブロックの右クリックでも切り替えられます";
+  bossSel.addEventListener("change", () => mutate(() => eachSelected((x) => { x.boss = bossSel.value; })));
+  const battle = same("battle");
+  const rate = same("rate");
+  return [
+    h("h3", {}, `${acts.length} 個の戦闘を選択中`),
+    h("label", { class: "row", title: "1 個でも未ロックがあれば全部ロック、全部ロック済みなら全部解除します (L)" },
+      h("input", { type: "checkbox", checked: locked === acts.length, indeterminate: locked > 0 && locked < acts.length,
+        onchange: () => mutate(toggleLockSelected) }), "🔒 位置をロック (L)"),
+    field("ボス", bossSel),
+    field("戦闘秒数", h("input", {
+      type: "number", min: 1, max: MAX_BATTLE, value: battle ?? "", placeholder: battle === null ? "混在" : "",
+      onchange: (e) => {
+        if (e.target.value === "") return;
+        const v = clamp(parseInt(e.target.value) || 1, 1, MAX_BATTLE);
+        mutate(() => eachSelected((x) => { x.battle = v; }));
+      },
+    })),
+    field("与ダメージ率", h("input", {
+      type: "number", min: 0, max: 1, step: 0.05, value: rate ?? "", placeholder: rate === null ? "混在" : "",
+      title: "ワンパンは 1 となります。1.0 未満なら市松模様と % を表示します",
+      onchange: (e) => {
+        if (e.target.value === "") return;
+        const r = parseFloat(e.target.value);
+        mutate(() => eachSelected((x) => { x.rate = Number.isFinite(r) ? r : 1; }));
+      },
+    })),
+    h("p", { class: "hint" }, "ボス・ロック・戦闘秒数・与ダメージ率・削除は選択中の戦闘すべてに適用します。時刻はまとめて変えられません。Ctrl+クリックで追加・解除、Shift+クリックで同じ列の範囲選択、Esc か空いた場所のクリックで解除します。"),
+    h("div", { class: "row" },
+      h("span", { class: "grow" }),
+      h("button", { class: "danger", onclick: () => mutate(deleteSelected) }, `${acts.length} 個の戦闘を削除 (Del)`)),
+  ];
+}
+
 function renderSide() {
   const panel = $("#panel-select");
   const parts = [];
 
-  if (selection) {
+  if (multi.length) {
+    parts.push(...renderMultiSide());
+  } else if (selection) {
     const pi = selection.p;
     const p = state.players[pi];
     // 空欄なら表示名を ID にする
@@ -631,14 +760,14 @@ function renderSide() {
           onchange: (e) => mutate(() => { const r = parseFloat(e.target.value); a.rate = Number.isFinite(r) ? r : 1; }),
         })),
         d ? h("p", { class: "hint" }, `戦闘 ${clock(d.battle_start)}–${clock(d.battle_end)}　再出撃 ${clock(d.cool_off)}　Lv${d.level}　${fmt(d.est_score)} / ${fmt(d.score)}`) : null,
-        h("p", { class: "hint" }, "↑↓ キーで 1 秒ずつ（Shift で 10 秒）動かせます。ブロックの右クリックでボスを順に切り替え、1〜4 キーで直接指定できます。"),
+        h("p", { class: "hint" }, "↑↓ キーで 1 秒ずつ（Shift で 10 秒）動かせます。ブロックの右クリックでボスを順に切り替え、1〜4 キーで直接指定できます。Ctrl+クリックで複数選択、Shift+クリックで同じ列の範囲選択ができます。"),
         h("div", { class: "row" },
           h("span", { class: "grow" }),
-          h("button", { class: "danger", onclick: () => mutate(() => { p.actions.splice(ai, 1); selection.a = null; }) }, "戦闘を削除 (Del)")));
+          h("button", { class: "danger", onclick: () => mutate(deleteSelected) }, "戦闘を削除 (Del)")));
     }
   } else {
     parts.push(h("p", { class: "hint" },
-      "ブロックをドラッグすると時刻を変えられます。隙間があればそのブロックだけが動き、隣に当たると押し出します。下端のドラッグで戦闘時間を変えられます。右クリックでボスを順に切り替え、選択中に 1〜4 キーで直接指定、↑↓ キーで 1 秒ずつ（Shift で 10 秒）動かせます。"));
+      "ブロックをドラッグすると時刻を変えられます。隙間があればそのブロックだけが動き、隣に当たると押し出します。下端のドラッグで戦闘時間を変えられます。右クリックでボスを順に切り替え、選択中に 1〜4 キーで直接指定、↑↓ キーで 1 秒ずつ（Shift で 10 秒）動かせます。Ctrl+クリックで複数選択、Shift+クリックで同じ列の範囲選択ができ、Esc か空いた場所のクリックで解除します。"));
   }
 
   // プレイヤー追加
@@ -829,25 +958,25 @@ function bindUI() {
     const key = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
     else if ((e.ctrlKey || e.metaKey) && (key === "y" || (key === "z" && e.shiftKey))) { e.preventDefault(); redo(); }
-    else if ((key === "delete" || key === "backspace") && selection && selection.a !== null) {
+    else if ((key === "delete" || key === "backspace") && selectedBlocks().length) {
       e.preventDefault();
-      const { p, a } = selection;
-      mutate(() => { state.players[p].actions.splice(a, 1); selection.a = null; });
-    } else if (/^[1-4]$/.test(key) && !e.ctrlKey && !e.metaKey && !e.altKey && selection && selection.a !== null) {
+      mutate(deleteSelected);
+    } else if (/^[1-4]$/.test(key) && !e.ctrlKey && !e.metaKey && !e.altKey && selectedBlocks().length) {
       // 選択中のブロックのボスを 1=1st 2=2nd 3=3rd 4=Realm で直接指定する
       e.preventDefault();
-      const act = state.players[selection.p].actions[selection.a];
       const boss = BOSSES[Number(key) - 1];
-      if (act.boss !== boss) mutate(() => { act.boss = boss; });
-    } else if (key === "l" && !e.ctrlKey && !e.metaKey && !e.altKey && selection && selection.a !== null) {
+      mutate(() => eachSelected((x) => { x.boss = boss; }));
+    } else if (key === "l" && !e.ctrlKey && !e.metaKey && !e.altKey && selectedBlocks().length) {
       e.preventDefault();
-      const act = state.players[selection.p].actions[selection.a];
-      mutate(() => toggleLock(act));
+      mutate(toggleLockSelected);
     } else if ((key === "arrowup" || key === "arrowdown") && !e.ctrlKey && !e.metaKey && !e.altKey && selection && selection.a !== null) {
       // ↑ で 1 秒早く、↓ で 1 秒遅く。Shift で 10 秒
       e.preventDefault();
       nudge((key === "arrowup" ? -1 : 1) * (e.shiftKey ? 10 : 1));
-    } else if (key === "escape") { $("#modal").hidden = true; }
+    } else if (key === "escape") {
+      if (!$("#modal").hidden) $("#modal").hidden = true;
+      else if (selection) { clearSelection(); render(); renderSide(); }
+    }
   });
 }
 
