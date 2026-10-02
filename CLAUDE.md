@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-chartmaker renders a raid timeline chart as a PNG: one column per player, one pixel per second over a 60-minute window. It shows each boss battle, the 5-minute cooldown, the floor level, and the expected score. All logic lives in `ChartLib.py`. `time_chart.ipynb` is the driver. There is no build system, test suite, or linter. `requirements.txt` lists the dependencies for the browser GUI (see below).
+chartmaker renders a raid timeline chart as a PNG: one column per player, one pixel per second over a 60-minute window. It shows each boss battle, the 5-minute cooldown, the floor level, and the expected score. All logic lives in `ChartLib.py`. `time_chart.ipynb` is the driver. There is no build system or linter. `tests/` holds a pytest suite (see Tests). `requirements.txt` lists the dependencies for the browser GUI (see below).
 
 ## Running
 
@@ -18,7 +18,21 @@ generate_chart("./src/<name>.txt", "./output/<name>.png", json.load(open("config
 
 - Run it from the repo root. `ChartLib` defines `BASE_DIR` as its own directory (`app.py` imports it from there), and every asset path (fonts, images, logo) is `BASE_DIR` + a path that starts with `/`.
 - `src/` (input schedules) and `output/` are not tracked by git, so create them locally. `output/` is only the destination of the notebook's PNGs.
-- Dependencies: `opencv-python`, `numpy`, `Pillow`. Pillow must be **< 10** because the code calls `ImageDraw.textsize`, which was removed in Pillow 10. OpenCV must be **< 5**: OpenCV 5 replaced the Hershey fonts in `putText` and ignores `thickness`, which changes the typeface and removes the text outlines (the thick `bgcolor` underlay).
+- Dependencies: `opencv-python`, `numpy`, `Pillow`. Pillow is pinned to the major version the golden images were checked with (`>=12,<13`). Text width uses `textbbox(...)[2]`, which equals the old `textsize` width, so the output matches Pillow 9.5 pixel for pixel. OpenCV must be **< 5**: OpenCV 5 replaced the Hershey fonts in `putText` and ignores `thickness`, which changes the typeface and removes the text outlines (the thick `bgcolor` underlay).
+
+## Tests (`tests/`)
+
+```sh
+.venv/Scripts/pip install -r requirements-dev.txt
+.venv/Scripts/python -m pytest
+```
+
+- `test_chartlib.py`: `parse`, `calc_level` (floor rules, timelag/cooldown, the push-at-0 quirk), the score formula, `format_clock`, and `layout_time_labels`.
+- `test_app.py`: the Flask API through the test client, including the tracker's kill/undo rules (409s). It imports `app` with `STORE` and `PLAN_BUCKET` unset, so it uses `MemoryStore` and saves nothing.
+- `test_store.py`: version bumps, the 24h expiry (never extended), and `CachedStore` reuse.
+- `test_chart_image.py` renders `tests/fixtures/plan_full.txt` (all display flags, short and long battles, rates < 1, 11 floors) and `plan_plain.txt` (no flags, `display_remaining`), and compares them with `tests/golden/*.png` pixel for pixel. On a mismatch, it writes the actual image and a copy with the differing pixels painted red to pytest's tmp dir. After an intended drawing change, check the images by eye, then run with `UPDATE_GOLDEN=1` to rewrite the goldens. Run this test before bumping Pillow or OpenCV.
+- The fixtures use fictional players. Never put real plans from `src/` (real player names) into `tests/`.
+- `tests/` and `requirements-dev.txt` are excluded from the container (`.dockerignore`).
 
 ## Browser GUI (`app.py` + `web/`)
 

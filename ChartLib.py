@@ -342,13 +342,13 @@ def generate_chart(src, dst, config, margin_top=160):
     for i, raw_name in enumerate(player_list):
         # メンバー名の描画
         name = get_player_name(setting, raw_name)
-        w, _ = draw.textsize(name, font_name)
+        w = draw.textbbox((0, 0), name, font=font_name)[2] # 右端 (旧 textsize の幅と同じ)
         draw.text((i*246+116+(246-w)//2, 48), name, font=font_name, fill=(*setting["player_name"]["color"], 0))
 
         # チーム名を描画
         if "display_team" in setting:
             if raw_name[:-2] in config["team"]["team_color"]:
-                w, _ = draw.textsize(raw_name[:-2], font_team)
+                w = draw.textbbox((0, 0), raw_name[:-2], font=font_team)[2]
                 draw.text((i*246+116+(246-w)//2, 8), raw_name[:-2], font=font_team, fill=(*config["team"]["team_color"][raw_name[:-2]], 0))
 
     # コメントを描画

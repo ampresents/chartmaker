@@ -1,7 +1,7 @@
 flask
 numpy
 opencv-python-headless<5
-Pillow<10
+Pillow>=12,<13
 gunicorn
 google-cloud-firestore
 google-cloud-storage
