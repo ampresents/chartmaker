@@ -175,8 +175,8 @@ def create_notify_session(client, **extra):
     return r.json["id"]
 
 
-def notify(client, sid, battle):
-    return client.post("/api/sessions/{}/notify".format(sid), json={"battle": battle})
+def notify(client, sid, *battles):
+    return client.post("/api/sessions/{}/notify".format(sid), json={"battles": list(battles)})
 
 
 @pytest.mark.parametrize("body", [
@@ -203,16 +203,25 @@ def test_notify_webhook_is_not_returned(client):
 def test_notify_sends_once(client, sent):
     sid = create_notify_session(client)
     r = notify(client, sid, 0)
-    assert r.status_code == 200 and r.json["sent"] is True
-    assert notify(client, sid, 0).json["sent"] is False  # 別の端末からの同じ通知
+    assert r.status_code == 200 and r.json["sent"] == [0]
+    assert notify(client, sid, 0).json["sent"] == []  # 別の端末からの同じ通知
     assert len(sent) == 1
     url, payload = sent[0]
     assert url == WEBHOOK
     assert payload["tts"] is True
     assert payload["allowed_mentions"] == {"parse": []}
-    assert payload["content"].startswith("Alpha01")
-    assert "30秒" in payload["content"] and "1st" in payload["content"]
-    assert notify(client, sid, 1).json["sent"] is True
+    assert payload["content"] == "Alpha01、準備して下さい"
+    assert notify(client, sid, 1).json["sent"] == [1]
+    assert len(sent) == 2
+
+
+def test_notify_groups_players(client, sent):
+    sid = create_notify_session(client)
+    notify(client, sid, 1)
+    # 同時に出撃する人をまとめて 1 通で呼ぶ。通知済みの戦闘と同じ人の重複は除く
+    r = notify(client, sid, 4, 1, 2, 4)
+    assert r.json["sent"] == [4, 2]
+    assert sent[-1][1]["content"] == "Beta01、Alpha01、準備して下さい"
     assert len(sent) == 2
 
 
@@ -221,6 +230,10 @@ def test_notify_errors(client, sent):
     assert notify(client, sid, 99).status_code == 400
     assert notify(client, sid, -1).status_code == 400
     assert notify(client, sid, "0").status_code == 400
+    assert notify(client, sid, True).status_code == 400
+    assert notify(client, sid).status_code == 400
+    assert notify(client, sid, 0, 99).status_code == 400  # 1 つでも不正なら何も送らない
+    assert client.post("/api/sessions/{}/notify".format(sid), json={"battles": 0}).status_code == 400
     assert notify(client, create_session(client), 0).status_code == 409  # Webhook なし
     assert notify(client, "nope", 0).status_code == 404
     assert sent == []
@@ -242,6 +255,14 @@ def test_notify_clear_deletes_once(client, sent, deleted):
     assert r.json["cleared"] == 0 and "version" not in r.json
     assert client.get("/api/sessions/" + sid).json["version"] == version + 1
     assert clear(client, sid, "0").status_code == 400
+    assert deleted == [(WEBHOOK, "m1")]
+
+
+def test_notify_clear_deletes_grouped_message_once(client, sent, deleted):
+    sid = create_notify_session(client)
+    notify(client, sid, 0, 4)
+    assert clear(client, sid, 4).json["cleared"] == 1
+    assert clear(client, sid, 0).json["cleared"] == 0  # まとめた通知は消し済み
     assert deleted == [(WEBHOOK, "m1")]
 
 

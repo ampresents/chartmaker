@@ -321,6 +321,7 @@ def api_session_create():
 # サーバーから任意の URL へ POST させないよう、Discord の Webhook だけ受け付ける
 DISCORD_WEBHOOK = re.compile(r"https://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/\d+/[\w-]+", re.ASCII)
 NOTIFY_LEAD = (5, 120, 30)  # 何秒前に読み上げるか (最小, 最大, 既定)
+MAX_NOTIFY_BATTLES = MAX_PLAYERS  # 1 通にまとめる戦闘の上限 (同時に出撃できるのは全員まで)
 
 
 def discord_setting(body):
@@ -412,29 +413,35 @@ def api_session_undo(sid):
 @app.post("/api/sessions/<sid>/notify")
 @rate_limit("kill", LIMIT_KILL)
 def api_session_notify(sid):
-    """出撃 N 秒前になった戦闘を Discord の TTS メッセージで知らせる。複数の端末から来ても 1 戦 1 回だけ送る"""
-    battle = (request.get_json(silent=True) or {}).get("battle")
-    if not isinstance(battle, int) or isinstance(battle, bool):
+    """出撃が近い戦闘をまとめて Discord の TTS メッセージで知らせる。複数の端末から来ても 1 戦 1 回だけ送る"""
+    battles = (request.get_json(silent=True) or {}).get("battles")
+    if (not isinstance(battles, list) or not 0 < len(battles) <= MAX_NOTIFY_BATTLES
+            or not all(isinstance(b, int) and not isinstance(b, bool) for b in battles)):
         raise InputError("不正な指定です")
+    battles = list(dict.fromkeys(battles))
     result = {}
 
     def apply(doc):
         if not doc.get("discord"):
             raise Conflict("Discord 通知は設定されていません")
-        if not 0 <= battle < len(doc["plan"]["detail"]):
+        if not all(0 <= b < len(doc["plan"]["detail"]) for b in battles):
             raise InputError("不正な指定です")
         # Firestore のトランザクションは再実行されることがあるので、毎回決め直す
-        result["sent"] = battle not in doc["notified"]
-        if result["sent"]:
-            doc["notified"].append(battle)
+        result["sent"] = [b for b in battles if b not in doc["notified"]]
+        doc["notified"].extend(result["sent"])
         return doc
 
     doc = store.update(sid, apply)
-    if result["sent"]:
-        d = doc["plan"]["detail"][battle]
+    sent = result["sent"]
+    if sent:
+        names = []
+        for b in sent:
+            d = doc["plan"]["detail"][b]
+            name = d["player_name"] or d["raw_name"]
+            if name not in names:
+                names.append(name)
         payload = {
-            "content": "{}さん、あと{}秒で{}に出撃です".format(
-                d["player_name"] or d["raw_name"], doc["discord"]["lead"], d["action"].replace("_boss", "")),
+            "content": "{}、準備して下さい".format("、".join(names)),
             "tts": True,
             "allowed_mentions": {"parse": []},  # 名前に @everyone などがあっても通知しない
         }
@@ -444,12 +451,14 @@ def api_session_notify(sid):
             print("Discord への通知に失敗しました:", repr(e))
             message_id = None
         if message_id:
-            # 出撃したら消すので、送ったメッセージを覚えておく
+            # 出撃したら消すので、送ったメッセージを戦闘ごとに覚えておく (まとめた戦闘は同じ ID)
             def remember(doc):
-                doc.setdefault("messages", {})[str(battle)] = {"id": str(message_id), "at": time.time()}
+                messages = doc.setdefault("messages", {})
+                for b in sent:
+                    messages[str(b)] = {"id": str(message_id), "at": time.time()}
                 return doc
             doc = store.update(sid, remember)
-    return jsonify(version=doc["version"], sent=result["sent"], server_now=now_ms())
+    return jsonify(version=doc["version"], sent=sent, server_now=now_ms())
 
 
 # 消し忘れを残さないよう、これより古い通知は別の戦闘の削除のついでに消す
@@ -466,7 +475,10 @@ def api_session_notify_clear(sid):
 
     def targets(doc):
         old = time.time() - MESSAGE_KEEP
-        return [k for k, m in (doc.get("messages") or {}).items() if k == str(battle) or m["at"] < old]
+        messages = doc.get("messages") or {}
+        mine = messages.get(str(battle), {}).get("id")
+        # まとめて送った通知は、そのうち 1 戦が出撃した時点で消す
+        return [k for k, m in messages.items() if m["id"] == mine or m["at"] < old]
 
     # 消すものが無ければ書き込まない (version を上げない)
     if not targets(store.get(sid)):
@@ -478,12 +490,12 @@ def api_session_notify_clear(sid):
         return doc
 
     doc = store.update(sid, apply)
-    for m in removed:
+    for message_id in dict.fromkeys(m["id"] for m in removed):
         try:
-            delete_discord(doc["discord"]["webhook"], m["id"])
+            delete_discord(doc["discord"]["webhook"], message_id)
         except Exception as e:
             print("Discord の通知の削除に失敗しました:", repr(e))
-    return jsonify(version=doc["version"], cleared=len(removed), server_now=now_ms())
+    return jsonify(version=doc["version"], cleared=len(set(m["id"] for m in removed)), server_now=now_ms())
 
 
 if __name__ == "__main__":

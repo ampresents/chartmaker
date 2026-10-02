@@ -340,7 +340,10 @@ function render() {
 }
 
 // 出撃 N 秒前になった戦闘をサーバー経由で Discord に読み上げさせ、出撃したらそのメッセージを消させる。
-// 開いている端末がそれぞれ送るが、サーバーが 1 戦 1 回にまとめる。待機中 (時刻が未確定) は送らない
+// 出撃時刻は討伐待ちを無視した最も早い見込み (at) で判断するので、前のボスが倒れていなくても呼びかける。
+// その時点で NOTIFY_GROUP 秒以内に続けて出撃する人は 1 通にまとめる。
+// 開いている端末がそれぞれ送るが、サーバーが 1 戦 1 回にまとめる
+const NOTIFY_GROUP = 5;
 function notifyUpcoming(sched, now) {
   if (!plan.notify_lead) return;
   for (const s of sched) {
@@ -349,13 +352,14 @@ function notifyUpcoming(sched, now) {
       api("POST", `/api/sessions/${sessionId()}/notify/clear`, { battle: s.x.id })
         .catch((e) => console.warn("Discord 通知の削除に失敗しました", e));
     }
-    if (s.state !== "upcoming" || !s.known || notifySent.has(s.x.id)) continue;
-    const left = s.at - now;
-    if (left <= 0 || left > plan.notify_lead) continue;
-    notifySent.add(s.x.id);
-    api("POST", `/api/sessions/${sessionId()}/notify`, { battle: s.x.id })
-      .catch((e) => console.warn("Discord 通知に失敗しました", e));
   }
+  const pending = sched.filter((s) => s.state === "upcoming" && !notifySent.has(s.x.id));
+  if (!pending.some((s) => s.at - now <= plan.notify_lead)) return;
+  const group = pending.filter((s) => s.at - now <= plan.notify_lead + NOTIFY_GROUP)
+    .sort((a, b) => a.at - b.at);
+  for (const s of group) notifySent.add(s.x.id);
+  api("POST", `/api/sessions/${sessionId()}/notify`, { battles: group.map((s) => s.x.id) })
+    .catch((e) => console.warn("Discord 通知に失敗しました", e));
 }
 
 // ---------------------------------------------------------------- 操作
