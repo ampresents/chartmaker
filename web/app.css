@@ -111,6 +111,10 @@ body.resizing { cursor: col-resize; user-select: none; }
 .block:hover { filter: brightness(1.15); }
 .block.selected { outline: 2px solid var(--accent); outline-offset: 1px; z-index: 2; }
 .block.dragging { cursor: grabbing; z-index: 3; }
+/* ロック中: 破線の枠で囲み、掴めないカーソルにする（戦闘時間のリサイズは可能） */
+.block.locked { cursor: not-allowed; }
+.block.locked::after { content: ""; position: absolute; inset: 0; border: 2px dashed rgba(255, 255, 255, .85);
+  border-radius: 2px; pointer-events: none; }
 .block .lag { position: absolute; left: 0; right: 0; top: 0; background: var(--lag); }
 .block .checker { position: absolute; left: 0; right: 0; bottom: 0;
   background: repeating-conic-gradient(#606060 0 25%, #808080 0 50%) 0 0 / 12px 12px; }

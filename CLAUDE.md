@@ -44,7 +44,9 @@ py -3.11 -m venv .venv
 - Each timeline block shows at most 3 lines, so it still fits at the smallest zoom (0.15 px/sec, a block about 45 px tall). Line 1 is the battle's start–end time in bold. Line 2 is the boss, the battle seconds, and the rate when it is below 100%. Line 3 is the Lv and score from `/api/detail`.
 - Saved files are named after today's date: `YYYYMMDD.txt` from the text panel and `YYYYMMDD.png` from the image preview (`dateStem()`).
 - Undo/redo (Ctrl+Z / Ctrl+Y) keeps state snapshots. The working state is autosaved to `localStorage` in the browser only.
+- Changing a block's boss without the settings panel: right-click a block to rotate it 1st → 2nd → 3rd → Realm → 1st, or press `1`–`4` with a block selected to set it directly. Each change is one undo step.
 - Timeline drag works like a sliding puzzle. A block moves alone through gaps and pushes touching neighbours. Pushed blocks stay where they were pushed.
+- A block can be locked (`L` key or the checkbox in the side panel; shown with 🔒 and a dashed border). `slideTo` never moves a locked block, and pushes stop in front of it. The lock is kept only in the GUI state (`locked: true` on the action, in the localStorage draft and undo history). It is not written to the txt, so importing a txt clears all locks. `setTimelag` still shifts locked blocks, because it keeps every wait_seconds.
 - The plan is to deploy publicly on Google Cloud (Cloud Run with gunicorn). Keep the server stateless.
 
 ## Progress tracker (`/tracker`, `web/tracker.*`, `store.py`)
