@@ -35,7 +35,7 @@
       <label class="grow webhook-label">Discord Webhook URL (任意) <input id="setup-webhook" type="url" placeholder="https://discord.com/api/webhooks/..." autocomplete="off"></label>
       <label><input id="setup-lead" type="number" min="5" max="120" step="1" value="30"> 秒前に読み上げ</label>
     </div>
-    <p class="hint">指定すると、出撃の少し前に「○○さん、あと30秒で1stに出撃です」を Discord の読み上げ (TTS) メッセージで送ります。Webhook はチャンネルの「設定 → 連携サービス → ウェブフック」で作成できます。読み上げられるのは PC 版の Discord でそのチャンネルを開いていて、「ユーザー設定 → アクセシビリティ → テキスト読み上げ」で /tts の再生を許可している人だけです。進行管理のページを誰かが開いている間だけ送ります。</p>
+    <p class="hint">指定すると、出撃の少し前に「○○、△△、準備して下さい」を Discord の読み上げ (TTS) メッセージで送ります (同時に出撃する人はまとめて呼びます。前のボスの討伐を待たずに作戦どおりの時刻で呼び、出撃したらメッセージを消します)。Webhook はチャンネルの「設定 → 連携サービス → ウェブフック」で作成できます。読み上げられるのは PC 版の Discord でそのチャンネルを開いていて、「ユーザー設定 → アクセシビリティ → テキスト読み上げ」で /tts の再生を許可している人だけです。進行管理のページを誰かが開いている間だけ送ります。</p>
     <div class="row">
       <label>開始日 <input id="setup-date" type="date"></label>
       <label>開始時刻 <input id="setup-time" type="time"></label>
