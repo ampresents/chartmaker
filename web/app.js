@@ -21,7 +21,7 @@ let scale = 0.25;          // px / 秒
 let details = [];          // /api/detail の結果 (出力順)
 let detailTimer = null;
 let textDirty = false;
-let lastNudge = null;      // {p, a, t, after}  連続した矢印キー移動を 1 回の Undo にまとめる
+let lastNudge = null;      // {key, t, after}  連続した矢印キー移動を 1 回の Undo にまとめる
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -320,21 +320,70 @@ function slideTo(actions, k, t) {
   }
 }
 
-// 矢印キーで選択中のブロックを dt 秒ずらす（押し出しは slideTo と同じ）。
-// 同じブロックへの連続操作（1 秒以内、間に他の変更なし）は 1 回の Undo にまとめる
+// 複数選択中の戦闘を、互いの間隔を保ったまま dt 秒ずらす。選択外のブロックは押し出す。
+// 選択中のどれか 1 個でもロックや端で止まるなら全体がそこで止まり、ロック中の戦闘を含むなら動かない。
+// 実際にずらした秒数を返す
+function shiftSelected(dt) {
+  const len = blockLen();
+  const byP = new Map();
+  selectedBlocks().forEach(({ p, a }) => {
+    if (!byP.has(p)) byP.set(p, new Set());
+    byP.get(p).add(a);
+  });
+  let lo = -Infinity, hi = Infinity;
+  for (const [p, sel] of byP) {
+    const acts = state.players[p].actions;
+    for (const k of sel) {
+      if (acts[k].locked) return 0;
+      // 後ろへ: 次の選択中の戦闘より手前にロックがあればそこまで、なければ最後の戦闘が終端に着くまで押せる
+      let j = k + 1;
+      while (j < acts.length && !sel.has(j) && !acts[j].locked) j++;
+      if (j === acts.length) hi = Math.min(hi, CHART_SEC - (acts.length - 1 - k) * len - acts[k].start);
+      else if (!sel.has(j)) hi = Math.min(hi, acts[j].start - (j - k) * len - acts[k].start);
+      // 前へ: 同様にロックか 0 秒まで
+      j = k - 1;
+      while (j >= 0 && !sel.has(j) && !acts[j].locked) j--;
+      if (j < 0) lo = Math.max(lo, k * len - acts[k].start);
+      else if (!sel.has(j)) lo = Math.max(lo, acts[j].start + (k - j) * len - acts[k].start);
+    }
+  }
+  if (lo > hi) return 0;
+  const d = clamp(dt, lo, hi);
+  if (!d) return 0;
+  for (const [p, sel] of byP) {
+    const acts = state.players[p].actions;
+    sel.forEach((k) => { acts[k].start += d; });
+    if (d > 0) {
+      for (let j = 1; j < acts.length; j++) {
+        if (!sel.has(j) && !acts[j].locked) acts[j].start = Math.max(acts[j].start, acts[j - 1].start + len);
+      }
+    } else {
+      for (let j = acts.length - 2; j >= 0; j--) {
+        if (!sel.has(j) && !acts[j].locked) acts[j].start = Math.min(acts[j].start, acts[j + 1].start - len);
+      }
+    }
+  }
+  return d;
+}
+
+// 矢印キーで選択中のブロックを dt 秒ずらす（1 個なら slideTo、複数なら shiftSelected と同じ押し出し）。
+// 同じ選択への連続操作（1 秒以内、間に他の変更なし）は 1 回の Undo にまとめる
 function nudge(dt) {
-  if (multi.length) return;  // まとめての移動は未対応
-  const { p, a } = selection;
-  const act = state.players[p].actions[a];
-  if (act.locked) return;
+  const key = selectedBlocks().map((x) => `${x.p}:${x.a}`).join(",");
   const before = snapshot();
   const now = Date.now();
-  const merge = lastNudge && lastNudge.p === p && lastNudge.a === a && now - lastNudge.t < 1000 && lastNudge.after === before;
-  slideTo(state.players[p].actions, a, act.start + dt);
+  const merge = lastNudge && lastNudge.key === key && now - lastNudge.t < 1000 && lastNudge.after === before;
+  if (multi.length) shiftSelected(dt);
+  else {
+    const { p, a } = selection;
+    const act = state.players[p].actions[a];
+    if (act.locked) return;
+    slideTo(state.players[p].actions, a, act.start + dt);
+  }
   const after = snapshot();
   if (after === before) return;  // 端やロックで動けなかった
   if (!merge) commit(before);
-  lastNudge = { p, a, t: now, after };
+  lastNudge = { key, t: now, after };
   afterChange();
 }
 
@@ -592,6 +641,9 @@ function startDrag(e, pi, ai, mode) {
   const before = snapshot();
   const acts = state.players[pi].actions;
   const a = acts[ai];
+  // 複数選択中のブロックをつかんだら選択全体を動かす（動かさずに離したらそのブロックだけの選択にする）
+  const group = mode === "move" && multi.some((x) => x.p === pi && x.a === ai);
+  const groupLocked = group && multi.some((x) => state.players[x.p].actions[x.a].locked);
   const y0 = e.clientY;
   const start0 = a.start;
   const battle0 = a.battle;
@@ -603,14 +655,18 @@ function startDrag(e, pi, ai, mode) {
     if (!moved && Math.abs(ev.clientY - y0) < 3) return;
     moved = true;
     const dt = Math.round((ev.clientY - y0) / scale);
-    if (mode === "move") slideTo(acts, ai, start0 + dt);
+    if (group) shiftSelected(start0 + dt - a.start);
+    else if (mode === "move") slideTo(acts, ai, start0 + dt);
     else a.battle = clamp(battle0 + dt, 1, MAX_BATTLE);
-    setSelection([{ p: pi, a: ai }]);
+    if (!group) setSelection([{ p: pi, a: ai }]);
     render();
     tip.hidden = false;
     tip.style.left = `${ev.clientX + 14}px`;
     tip.style.top = `${ev.clientY + 10}px`;
-    tip.textContent = mode === "move" && a.locked ? "ロック中（L キーで解除）"
+    const shift = a.start - start0;
+    tip.textContent = groupLocked ? "ロック中の戦闘を含むため動かせません（L キーで解除）"
+      : group ? `${multi.length} 個の戦闘を ${shift > 0 ? "+" : ""}${shift}秒`
+      : mode === "move" && a.locked ? "ロック中（L キーで解除）"
       : mode === "move"
       ? `戦闘開始 ${clock(a.start + timelag())}（待機 ${a.start - (ai ? acts[ai - 1].start + blockLen() : 0)}秒）`
       : `戦闘 ${a.battle}秒（終了 ${clock(a.start + timelag() + a.battle)}）`;
@@ -690,7 +746,7 @@ function renderMultiSide() {
         mutate(() => eachSelected((x) => { x.rate = Number.isFinite(r) ? r : 1; }));
       },
     })),
-    h("p", { class: "hint" }, "ボス・ロック・戦闘秒数・与ダメージ率・削除は選択中の戦闘すべてに適用します。時刻はまとめて変えられません。Ctrl+クリックで追加・解除、Shift+クリックで同じ列の範囲選択、Esc か空いた場所のクリックで解除します。"),
+    h("p", { class: "hint" }, "ボス・ロック・戦闘秒数・与ダメージ率・削除は選択中の戦闘すべてに適用します。ドラッグか ↑↓ キー（Shift で 10 秒）で間隔を保ったまままとめて動かせます。ロックや端で 1 個でも止まると全体が止まります。Ctrl+クリックで追加・解除、Shift+クリックで同じ列の範囲選択、Esc か空いた場所のクリックで解除します。"),
     h("div", { class: "row" },
       h("span", { class: "grow" }),
       h("button", { class: "danger", onclick: () => mutate(deleteSelected) }, `${acts.length} 個の戦闘を削除 (Del)`)),
