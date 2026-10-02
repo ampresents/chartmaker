@@ -31,6 +31,13 @@ def test_parse_constants_comments_and_actions():
     ]
 
 
+def test_parse_ignores_gui_lock_lines():
+    # GUI はロックした行動の次の行に #lock を書く。チャートには影響しない
+    plain = "::timelag=0\nAlpha01,5,1st_boss,30\nAlpha01,0,2nd_boss,40\n"
+    locked = "::timelag=0\nAlpha01,5,1st_boss,30\n#lock\nAlpha01,0,2nd_boss,40\n#lock\n"
+    assert parse(lines(locked)) == parse(lines(plain))
+
+
 @pytest.mark.parametrize("line", [
     "Alpha01,5,4th_boss,30",     # 不明なボス
     "Alpha01,x,1st_boss,30",     # 待ち秒数が整数でない
