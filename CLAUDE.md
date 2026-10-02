@@ -53,7 +53,7 @@ py -3.11 -m venv .venv
 
 It replaces the old in-game app that read `cleartime.json` and `detail.json`. Operators press a kill button for each boss, and every device showing the same URL stays in sync.
 
-- The editor's 進捗管理 ("progress tracking") button hands the current `toText()` to `/tracker` through `localStorage` (`chartmaker.tracker.text`). The setup screen reads the date and `::start_time`, then calls `POST /api/sessions {text, start_epoch_ms}` and navigates to `/tracker/<id>`. The random 128-bit id is the only access control.
+- The editor's 進行管理 ("progress management") button hands the current `toText()` to `/tracker` through `localStorage` (`chartmaker.tracker.text`). The setup screen reads the date and `::start_time`, then calls `POST /api/sessions {text, start_epoch_ms}` and navigates to `/tracker/<id>`. The random 128-bit id is the only access control.
 - The server builds the plan once: `cleartime` comes from `calc_level` (index = floor; index 0 is the sentinel; trailing empty floors are trimmed), and `detail` is a trimmed `generate_detail`. Boss images that don't exist locally are dropped, because `validate(..., check_images=False)` skips the image check.
 - Endpoints:
   - `GET /api/sessions/<id>?since=<version>` returns only `{version, server_now}` when nothing has changed. Clients poll every second and use `server_now` to correct their clock.

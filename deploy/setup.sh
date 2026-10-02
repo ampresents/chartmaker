@@ -11,7 +11,7 @@ gcloud services enable \
   run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com \
   firestore.googleapis.com storage.googleapis.com
 
-# 進捗管理のセッションを置く Firestore (Native モード)
+# 進行管理のセッションを置く Firestore (Native モード)
 if ! gcloud firestore databases describe --database='(default)' >/dev/null 2>&1; then
   gcloud firestore databases create --location="$REGION"
 fi
