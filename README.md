@@ -84,7 +84,7 @@ bash deploy/setup.sh
 
 - Cloud Run / Cloud Build / Artifact Registry / Firestore の API を有効化
 - Firestore（Native モード、`asia-northeast1`）を作成。進行管理のセッションを保存する
-- `tracker_sessions` の `expire_at` に TTL を設定（24 時間を過ぎたセッションを自動削除）
+- `tracker_sessions` の `expire_at` に TTL を設定（失効したセッションを自動削除。削除は失効から最大 24 時間ほど遅れるが、失効した時点でアプリからは開けない）
 - Cloud Run 用サービスアカウント `chartmaker-run` を作成（権限は Firestore の読み書きのみ）
 - 作戦 txt の保存先バケット（既定 `chartmaker-output`、`PLAN_BUCKET=<名前>` で変更可）が無ければ作成し、`chartmaker-run` に一覧と作成だけを許可（上書き・削除はできない）
 
@@ -242,6 +242,10 @@ gcloud functions logs read stop-billing --project="$PROJECT" --region=asia-north
 gcloud storage ls gs://chartmaker-output/plans/
 gcloud storage cp -r gs://chartmaker-output/plans ./plans
 
+# 有効期限内の進行管理セッションの一覧（--all で期限切れ・削除待ちも、--url=https://chartmaker.jp で画面の URL も表示）
+# 初回だけ gcloud auth application-default login が必要
+.venv/Scripts/python deploy/list_sessions.py
+
 # リビジョン一覧と、1 つ前のリビジョンへの切り戻し
 gcloud run revisions list --service=chartmaker --project="$PROJECT" --region=asia-northeast1
 gcloud run services update-traffic chartmaker --project="$PROJECT" --region=asia-northeast1 --to-revisions=<リビジョン名>=100
@@ -262,5 +266,5 @@ gcloud run services update-traffic chartmaker --project="$PROJECT" --region=asia
 | `gcloud: command not found` | gcloud に PATH が通っていない。[2 章](#2-コマンドを打つ環境windows)の `PATH` を設定する |
 | `chartmaker.jp` だけ開かない（`run.app` は開く） | ドメインの期限切れか DNS の変更。お名前.com の更新状況と DNS レコード（第 4 章）を確認する |
 | サイトが開かなくなった | 予算超過で課金が止まった可能性。コンソールの「お支払い」でプロジェクトに請求先アカウントを紐づけ直すと再開する（必要なら予算額も見直す） |
-| 進行管理で「セッションが見つかりません」 | 作成から 24 時間を過ぎたセッションは自動で消える。作り直す |
+| 進行管理で「セッションが見つかりません」 | セッションは作成から 24 時間で失効する（使っていても延長されない）。作り直す |
 | 429 / 503 が出る | 第 5 章の回数制限・同時実行数の上限。少し待つ |

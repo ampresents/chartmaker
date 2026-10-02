@@ -8,7 +8,7 @@ import secrets
 import threading
 import time
 
-SESSION_TTL = 24 * 3600  # これより古いセッションは消す (Firestore は expire_at の TTL ポリシーで消す)
+SESSION_TTL = 24 * 3600  # 作成からこの秒数で失効 (延長しない)。Firestore の実体は expire_at の TTL ポリシーで後から消える
 CACHE_TTL = 1.0  # CachedStore が get の結果を使い回す秒数
 
 
@@ -18,6 +18,17 @@ class NotFound(Exception):
 
 def new_id():
     return secrets.token_urlsafe(16)
+
+
+def expired(doc):
+    """作成から SESSION_TTL を過ぎたか。
+
+    Firestore の TTL 削除は期限から遅れて (最大 24 時間ほど) 行われるので、読むたびに確かめる。
+    """
+    exp = doc.get("expire_at")
+    if exp is not None:
+        return exp <= datetime.datetime.now(datetime.timezone.utc)
+    return doc["created"] + SESSION_TTL <= time.time()
 
 
 class MemoryStore:
@@ -39,13 +50,13 @@ class MemoryStore:
 
     def get(self, sid):
         with self._lock:
-            if sid not in self._docs:
+            if sid not in self._docs or expired(self._docs[sid]):
                 raise NotFound(sid)
             return copy.deepcopy(self._docs[sid])
 
     def update(self, sid, fn):
         with self._lock:
-            if sid not in self._docs:
+            if sid not in self._docs or expired(self._docs[sid]):
                 raise NotFound(sid)
             doc = fn(copy.deepcopy(self._docs[sid]))
             doc["version"] += 1
@@ -68,7 +79,7 @@ class FirestoreStore:
 
     def get(self, sid):
         snap = self._col.document(sid).get()
-        if not snap.exists:
+        if not snap.exists or expired(snap.to_dict()):
             raise NotFound(sid)
         return snap.to_dict()
 
@@ -78,7 +89,7 @@ class FirestoreStore:
         @self._fs.transactional
         def run(tx):
             snap = ref.get(transaction=tx)
-            if not snap.exists:
+            if not snap.exists or expired(snap.to_dict()):
                 raise NotFound(sid)
             doc = fn(snap.to_dict())
             doc["version"] += 1
@@ -117,6 +128,8 @@ class CachedStore:
         with self._lock:
             hit = self._cache.get(sid)
         if hit and time.monotonic() - hit[0] < self._ttl:
+            if expired(hit[1]):
+                raise NotFound(sid)
             return copy.deepcopy(hit[1])
         doc = self._inner.get(sid)
         self._put(sid, doc)

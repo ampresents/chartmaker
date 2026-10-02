@@ -58,7 +58,8 @@ It replaces the old in-game app that read `cleartime.json` and `detail.json`. Op
 - Endpoints:
   - `GET /api/sessions/<id>?since=<version>` returns only `{version, server_now}` when nothing has changed. Clients poll every second and use `server_now` to correct their clock.
   - `POST .../kill {floor, boss}` and `POST .../undo {count}` are validated on the server with the `calc_level` rules: floor = 1 + Realm kills, and Realm is allowed only after 1st/2nd/3rd are killed on that floor. A stale or duplicate press returns 409.
-- `store.py`: `MemoryStore` is the default and is lost on restart. Sessions expire after 24h. With `STORE=firestore`, `FirestoreStore` is used (collection `tracker_sessions`, updates in a transaction) so that several Cloud Run instances share the state.
+- `store.py`: `MemoryStore` is the default and is lost on restart. Sessions expire 24h after creation and are never extended. `get`/`update` (and `CachedStore` hits) check `expired()` and raise `NotFound`, because Firestore's TTL deletion can lag by up to a day. With `STORE=firestore`, `FirestoreStore` is used (collection `tracker_sessions`, updates in a transaction) so that several Cloud Run instances share the state.
+- There is deliberately no list API (the id is the only access control). `deploy/list_sessions.py` lists sessions straight from Firestore for the admin (`PROJECT=<id>`, needs `gcloud auth application-default login`; `--all` includes expired ones, `--url=` prints tracker URLs). `deploy/` is excluded from the container.
 - 挑戦中 (fighting) and 次に出撃 (next to sortie) follow the kill buttons, not the clock. `schedule()` in `tracker.js` replays each player's battles in plan order. Each battle's actual sortie time is the latest of these:
   - its planned `push_start`
   - the previous battle's actual push + timelag + 300 (the cooldown)
