@@ -14,6 +14,7 @@
   <b>進行管理</b>
   <span id="comment" class="muted"></span>
   <span class="grow"></span>
+  <span id="notify" class="muted" hidden></span>
   <span id="sync" class="muted"></span>
   <a id="support-link" class="btn support" hidden target="_blank" rel="noopener" title="ChartMaker の開発とサーバー代を支援する（外部サイト）">♡ 開発を支援</a>
   <button id="btn-share" hidden title="このページの URL をコピーして他の操作者に共有">URL をコピー</button>
@@ -30,6 +31,11 @@
       <span class="hint">または下に貼り付け</span>
     </div>
     <textarea id="setup-text" spellcheck="false"></textarea>
+    <div class="row">
+      <label class="grow webhook-label">Discord Webhook URL (任意) <input id="setup-webhook" type="url" placeholder="https://discord.com/api/webhooks/..." autocomplete="off"></label>
+      <label><input id="setup-lead" type="number" min="5" max="120" step="1" value="30"> 秒前に読み上げ</label>
+    </div>
+    <p class="hint">指定すると、出撃の少し前に「○○さん、あと30秒で1stに出撃です」を Discord の読み上げ (TTS) メッセージで送ります。Webhook はチャンネルの「設定 → 連携サービス → ウェブフック」で作成できます。読み上げられるのは PC 版の Discord でそのチャンネルを開いていて、「ユーザー設定 → アクセシビリティ → テキスト読み上げ」で /tts の再生を許可している人だけです。進行管理のページを誰かが開いている間だけ送ります。</p>
     <div class="row">
       <label>開始日 <input id="setup-date" type="date"></label>
       <label>開始時刻 <input id="setup-time" type="time"></label>

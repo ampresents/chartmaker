@@ -4,9 +4,11 @@ import functools
 import glob
 import json
 import os
+import re
 import tempfile
 import threading
 import time
+import urllib.request
 from collections import deque
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -309,8 +311,35 @@ def api_session_create():
         "cleartime": clear_time,
         "detail": detail,
     }
-    sid = store.create({"plan": plan, "events": []})
+    discord = discord_setting(request.get_json(silent=True) or {})
+    plan["notify_lead"] = discord["lead"] if discord else None
+    # Webhook URL は plan の外に置き、GET で返さない
+    sid = store.create({"plan": plan, "events": [], "discord": discord, "notified": []})
     return jsonify(id=sid)
+
+
+# サーバーから任意の URL へ POST させないよう、Discord の Webhook だけ受け付ける
+DISCORD_WEBHOOK = re.compile(r"https://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/\d+/[\w-]+", re.ASCII)
+NOTIFY_LEAD = (5, 120, 30)  # 何秒前に読み上げるか (最小, 最大, 既定)
+
+
+def discord_setting(body):
+    webhook = body.get("discord_webhook") or ""
+    if not webhook:
+        return None
+    if not isinstance(webhook, str) or not DISCORD_WEBHOOK.fullmatch(webhook.strip()):
+        raise InputError("Discord の Webhook URL (https://discord.com/api/webhooks/...) を指定してください")
+    lead = body.get("notify_lead", NOTIFY_LEAD[2])
+    if not isinstance(lead, int) or isinstance(lead, bool) or not NOTIFY_LEAD[0] <= lead <= NOTIFY_LEAD[1]:
+        raise InputError("読み上げは {}〜{} 秒前で指定してください".format(*NOTIFY_LEAD[:2]))
+    return {"webhook": webhook.strip(), "lead": lead}
+
+
+def send_discord(webhook, payload):
+    req = urllib.request.Request(webhook, data=json.dumps(payload).encode("utf-8"), method="POST",
+                                 headers={"Content-Type": "application/json", "User-Agent": "chartmaker"})
+    with urllib.request.urlopen(req, timeout=5) as res:
+        res.read()
 
 
 @app.get("/api/sessions/<sid>")
@@ -368,6 +397,42 @@ def api_session_undo(sid):
 
     doc = store.update(sid, apply)
     return jsonify(version=doc["version"], events=doc["events"], server_now=now_ms())
+
+
+@app.post("/api/sessions/<sid>/notify")
+@rate_limit("kill", LIMIT_KILL)
+def api_session_notify(sid):
+    """出撃 N 秒前になった戦闘を Discord の TTS メッセージで知らせる。複数の端末から来ても 1 戦 1 回だけ送る"""
+    battle = (request.get_json(silent=True) or {}).get("battle")
+    if not isinstance(battle, int) or isinstance(battle, bool):
+        raise InputError("不正な指定です")
+    result = {}
+
+    def apply(doc):
+        if not doc.get("discord"):
+            raise Conflict("Discord 通知は設定されていません")
+        if not 0 <= battle < len(doc["plan"]["detail"]):
+            raise InputError("不正な指定です")
+        # Firestore のトランザクションは再実行されることがあるので、毎回決め直す
+        result["sent"] = battle not in doc["notified"]
+        if result["sent"]:
+            doc["notified"].append(battle)
+        return doc
+
+    doc = store.update(sid, apply)
+    if result["sent"]:
+        d = doc["plan"]["detail"][battle]
+        payload = {
+            "content": "{}さん、あと{}秒で{}に出撃です".format(
+                d["player_name"] or d["raw_name"], doc["discord"]["lead"], d["action"].replace("_boss", "")),
+            "tts": True,
+            "allowed_mentions": {"parse": []},  # 名前に @everyone などがあっても通知しない
+        }
+        try:
+            send_discord(doc["discord"]["webhook"], payload)
+        except Exception as e:
+            print("Discord への通知に失敗しました:", repr(e))
+    return jsonify(version=doc["version"], sent=result["sent"], server_now=now_ms())
 
 
 if __name__ == "__main__":

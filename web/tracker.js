@@ -7,6 +7,7 @@ const POLL_MS = 1000;
 const TICK_MS = 200;
 const NEXT_COUNT = 8;
 const HANDOFF_KEY = "chartmaker.tracker.text";
+const WEBHOOK_KEY = "chartmaker.tracker.webhook";
 
 let plan = null;
 let events = [];
@@ -16,6 +17,7 @@ let bestRtt = Infinity;
 let busy = false;
 let lastSync = 0;
 let ui = {};               // 作り置きの要素
+const notifySent = new Set(); // この端末から Discord 通知を頼んだ戦闘 (plan.detail の添字)
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -186,6 +188,10 @@ function buildBoard() {
   }));
   $("#board").hidden = false;
   $("#btn-share").hidden = false;
+  if (plan.notify_lead) {
+    $("#notify").textContent = `🔊 Discord 通知: ${plan.notify_lead}秒前`;
+    $("#notify").hidden = false;
+  }
 }
 
 function playerTag(d, big) {
@@ -311,6 +317,8 @@ function render() {
     setText(el, waiting ? "待機中" : `あと ${Math.max(0, Math.ceil(s.at - now))}秒`);
   });
 
+  notifyUpcoming(sched, now);
+
   // 履歴 (新しい順)
   setChildren($("#history"), `${version}`, () =>
     events.length
@@ -328,6 +336,20 @@ function render() {
   const stale = Date.now() - lastSync > 5000;
   setText($("#sync"), stale ? "サーバーと同期できていません" : "同期中");
   $("#sync").classList.toggle("late-text", stale);
+}
+
+// 出撃 N 秒前になった戦闘をサーバー経由で Discord に読み上げさせる。
+// 開いている端末がそれぞれ送るが、サーバーが 1 戦 1 回にまとめる。待機中 (時刻が未確定) は送らない
+function notifyUpcoming(sched, now) {
+  if (!plan.notify_lead) return;
+  for (const s of sched) {
+    if (s.state !== "upcoming" || !s.known || notifySent.has(s.x.id)) continue;
+    const left = s.at - now;
+    if (left <= 0 || left > plan.notify_lead) continue;
+    notifySent.add(s.x.id);
+    api("POST", `/api/sessions/${sessionId()}/notify`, { battle: s.x.id })
+      .catch((e) => console.warn("Discord 通知に失敗しました", e));
+  }
 }
 
 // ---------------------------------------------------------------- 操作
@@ -395,6 +417,7 @@ function showSetup() {
     localStorage.removeItem(HANDOFF_KEY);
   } catch (e) { /* 引き継ぎなし */ }
   setupText(text);
+  try { $("#setup-webhook").value = localStorage.getItem(WEBHOOK_KEY) || ""; } catch (e) { /* 覚えていない */ }
   $("#setup-text").addEventListener("change", (e) => setupText(e.target.value));
   $("#setup-file").addEventListener("change", async (e) => {
     const f = e.target.files[0];
@@ -406,8 +429,16 @@ function showSetup() {
     const time = $("#setup-time").value;
     if (!date || !time) { showStatus("開始日と開始時刻を指定してください"); return; }
     const start = new Date(`${date}T${time}:00`).getTime();
+    const webhook = $("#setup-webhook").value.trim();
     try {
-      const j = await api("POST", "/api/sessions", { text: $("#setup-text").value, start_epoch_ms: start });
+      const j = await api("POST", "/api/sessions", {
+        text: $("#setup-text").value, start_epoch_ms: start,
+        discord_webhook: webhook, notify_lead: Number($("#setup-lead").value),
+      });
+      try {
+        if (webhook) localStorage.setItem(WEBHOOK_KEY, webhook);
+        else localStorage.removeItem(WEBHOOK_KEY);
+      } catch (e) { /* 覚えなくてよい */ }
       location.href = `/tracker/${j.id}`;
     } catch (e) {
       showStatus(e.message);

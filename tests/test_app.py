@@ -143,3 +143,81 @@ def test_session_undo(client):
 def test_session_not_found(client):
     assert client.get("/api/sessions/nope").status_code == 404
     assert kill(client, "nope", 1, "1st_boss").status_code == 404
+
+
+# ---------------------------------------------------------------- Discord 通知
+
+WEBHOOK = "https://discord.com/api/webhooks/123456/abc_DEF-ghi"
+
+
+@pytest.fixture
+def sent(monkeypatch):
+    calls = []
+    monkeypatch.setattr(app_module, "send_discord", lambda url, payload: calls.append((url, payload)))
+    return calls
+
+
+def create_notify_session(client, **extra):
+    r = client.post("/api/sessions", json=dict(text=PLAN, start_epoch_ms=1_700_000_000_000,
+                                               discord_webhook=WEBHOOK, **extra))
+    assert r.status_code == 200
+    return r.json["id"]
+
+
+def notify(client, sid, battle):
+    return client.post("/api/sessions/{}/notify".format(sid), json={"battle": battle})
+
+
+@pytest.mark.parametrize("body", [
+    {"discord_webhook": "http://discord.com/api/webhooks/1/abc"},
+    {"discord_webhook": "https://example.com/api/webhooks/1/abc"},
+    {"discord_webhook": "https://discord.com.evil.example/api/webhooks/1/abc"},
+    {"discord_webhook": "https://discord.com/api/webhooks/1/abc?x=1"},
+    {"discord_webhook": WEBHOOK, "notify_lead": 4},
+    {"discord_webhook": WEBHOOK, "notify_lead": "30"},
+])
+def test_notify_create_errors(client, body):
+    r = client.post("/api/sessions", json=dict(text=PLAN, start_epoch_ms=0, **body))
+    assert r.status_code == 400
+
+
+def test_notify_webhook_is_not_returned(client):
+    sid = create_notify_session(client, notify_lead=20)
+    r = client.get("/api/sessions/" + sid)
+    assert WEBHOOK not in r.get_data(as_text=True)
+    assert r.json["plan"]["notify_lead"] == 20
+    assert client.get("/api/sessions/" + create_session(client)).json["plan"]["notify_lead"] is None
+
+
+def test_notify_sends_once(client, sent):
+    sid = create_notify_session(client)
+    r = notify(client, sid, 0)
+    assert r.status_code == 200 and r.json["sent"] is True
+    assert notify(client, sid, 0).json["sent"] is False  # 別の端末からの同じ通知
+    assert len(sent) == 1
+    url, payload = sent[0]
+    assert url == WEBHOOK
+    assert payload["tts"] is True
+    assert payload["allowed_mentions"] == {"parse": []}
+    assert payload["content"].startswith("Alpha01")
+    assert "30秒" in payload["content"] and "1st" in payload["content"]
+    assert notify(client, sid, 1).json["sent"] is True
+    assert len(sent) == 2
+
+
+def test_notify_errors(client, sent):
+    sid = create_notify_session(client)
+    assert notify(client, sid, 99).status_code == 400
+    assert notify(client, sid, -1).status_code == 400
+    assert notify(client, sid, "0").status_code == 400
+    assert notify(client, create_session(client), 0).status_code == 409  # Webhook なし
+    assert notify(client, "nope", 0).status_code == 404
+    assert sent == []
+
+
+def test_notify_send_failure_is_ignored(client, monkeypatch):
+    def fail(url, payload):
+        raise OSError("down")
+    monkeypatch.setattr(app_module, "send_discord", fail)
+    sid = create_notify_session(client)
+    assert notify(client, sid, 0).status_code == 200
