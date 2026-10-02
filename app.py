@@ -335,11 +335,21 @@ def discord_setting(body):
     return {"webhook": webhook.strip(), "lead": lead}
 
 
-def send_discord(webhook, payload):
-    req = urllib.request.Request(webhook, data=json.dumps(payload).encode("utf-8"), method="POST",
+def discord_request(method, url, payload=None):
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(url, data=data, method=method,
                                  headers={"Content-Type": "application/json", "User-Agent": "chartmaker"})
     with urllib.request.urlopen(req, timeout=5) as res:
-        res.read()
+        return res.read()
+
+
+def send_discord(webhook, payload):
+    """メッセージを送り、あとで消せるようにメッセージ ID を返す (wait=true で本文が返る)"""
+    return json.loads(discord_request("POST", webhook + "?wait=true", payload))["id"]
+
+
+def delete_discord(webhook, message_id):
+    discord_request("DELETE", "{}/messages/{}".format(webhook, message_id))
 
 
 @app.get("/api/sessions/<sid>")
@@ -429,10 +439,51 @@ def api_session_notify(sid):
             "allowed_mentions": {"parse": []},  # 名前に @everyone などがあっても通知しない
         }
         try:
-            send_discord(doc["discord"]["webhook"], payload)
+            message_id = send_discord(doc["discord"]["webhook"], payload)
         except Exception as e:
             print("Discord への通知に失敗しました:", repr(e))
+            message_id = None
+        if message_id:
+            # 出撃したら消すので、送ったメッセージを覚えておく
+            def remember(doc):
+                doc.setdefault("messages", {})[str(battle)] = {"id": str(message_id), "at": time.time()}
+                return doc
+            doc = store.update(sid, remember)
     return jsonify(version=doc["version"], sent=result["sent"], server_now=now_ms())
+
+
+# 消し忘れを残さないよう、これより古い通知は別の戦闘の削除のついでに消す
+MESSAGE_KEEP = NOTIFY_LEAD[1] + 60
+
+
+@app.post("/api/sessions/<sid>/notify/clear")
+@rate_limit("kill", LIMIT_KILL)
+def api_session_notify_clear(sid):
+    """出撃した戦闘の通知メッセージを Discord から消す。複数の端末から来ても 1 回だけ消す"""
+    battle = (request.get_json(silent=True) or {}).get("battle")
+    if not isinstance(battle, int) or isinstance(battle, bool):
+        raise InputError("不正な指定です")
+
+    def targets(doc):
+        old = time.time() - MESSAGE_KEEP
+        return [k for k, m in (doc.get("messages") or {}).items() if k == str(battle) or m["at"] < old]
+
+    # 消すものが無ければ書き込まない (version を上げない)
+    if not targets(store.get(sid)):
+        return jsonify(cleared=0, server_now=now_ms())
+    removed = []
+
+    def apply(doc):
+        removed[:] = [doc["messages"].pop(k) for k in targets(doc)]
+        return doc
+
+    doc = store.update(sid, apply)
+    for m in removed:
+        try:
+            delete_discord(doc["discord"]["webhook"], m["id"])
+        except Exception as e:
+            print("Discord の通知の削除に失敗しました:", repr(e))
+    return jsonify(version=doc["version"], cleared=len(removed), server_now=now_ms())
 
 
 if __name__ == "__main__":
