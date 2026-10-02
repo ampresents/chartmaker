@@ -153,7 +153,18 @@ WEBHOOK = "https://discord.com/api/webhooks/123456/abc_DEF-ghi"
 @pytest.fixture
 def sent(monkeypatch):
     calls = []
-    monkeypatch.setattr(app_module, "send_discord", lambda url, payload: calls.append((url, payload)))
+
+    def send(url, payload):
+        calls.append((url, payload))
+        return "m{}".format(len(calls))  # Discord のメッセージ ID
+    monkeypatch.setattr(app_module, "send_discord", send)
+    return calls
+
+
+@pytest.fixture
+def deleted(monkeypatch):
+    calls = []
+    monkeypatch.setattr(app_module, "delete_discord", lambda url, message_id: calls.append((url, message_id)))
     return calls
 
 
@@ -213,6 +224,36 @@ def test_notify_errors(client, sent):
     assert notify(client, create_session(client), 0).status_code == 409  # Webhook なし
     assert notify(client, "nope", 0).status_code == 404
     assert sent == []
+
+
+def clear(client, sid, battle):
+    return client.post("/api/sessions/{}/notify/clear".format(sid), json={"battle": battle})
+
+
+def test_notify_clear_deletes_once(client, sent, deleted):
+    sid = create_notify_session(client)
+    assert clear(client, sid, 0).json["cleared"] == 0  # まだ送っていない
+    notify(client, sid, 0)
+    notify(client, sid, 1)
+    version = client.get("/api/sessions/" + sid).json["version"]
+    assert clear(client, sid, 0).json["cleared"] == 1
+    assert deleted == [(WEBHOOK, "m1")]
+    r = clear(client, sid, 0)  # 別の端末からの同じ削除
+    assert r.json["cleared"] == 0 and "version" not in r.json
+    assert client.get("/api/sessions/" + sid).json["version"] == version + 1
+    assert clear(client, sid, "0").status_code == 400
+    assert deleted == [(WEBHOOK, "m1")]
+
+
+def test_notify_clear_removes_stale_messages(client, sent, deleted, monkeypatch):
+    sid = create_notify_session(client)
+    notify(client, sid, 0)
+    now = app_module.time.time()
+    monkeypatch.setattr(app_module.time, "time", lambda: now + app_module.MESSAGE_KEEP + 1)
+    notify(client, sid, 1)
+    # 戦闘 1 を消すついでに、消し忘れた古い戦闘 0 も消す
+    assert clear(client, sid, 1).json["cleared"] == 2
+    assert sorted(m for _, m in deleted) == ["m1", "m2"]
 
 
 def test_notify_send_failure_is_ignored(client, monkeypatch):

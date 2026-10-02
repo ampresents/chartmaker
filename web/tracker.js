@@ -18,6 +18,7 @@ let busy = false;
 let lastSync = 0;
 let ui = {};               // 作り置きの要素
 const notifySent = new Set(); // この端末から Discord 通知を頼んだ戦闘 (plan.detail の添字)
+const notifyCleared = new Set(); // そのうち、出撃したので通知の削除を頼んだ戦闘
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -338,11 +339,16 @@ function render() {
   $("#sync").classList.toggle("late-text", stale);
 }
 
-// 出撃 N 秒前になった戦闘をサーバー経由で Discord に読み上げさせる。
+// 出撃 N 秒前になった戦闘をサーバー経由で Discord に読み上げさせ、出撃したらそのメッセージを消させる。
 // 開いている端末がそれぞれ送るが、サーバーが 1 戦 1 回にまとめる。待機中 (時刻が未確定) は送らない
 function notifyUpcoming(sched, now) {
   if (!plan.notify_lead) return;
   for (const s of sched) {
+    if (notifySent.has(s.x.id) && s.state !== "upcoming" && !notifyCleared.has(s.x.id)) {
+      notifyCleared.add(s.x.id);
+      api("POST", `/api/sessions/${sessionId()}/notify/clear`, { battle: s.x.id })
+        .catch((e) => console.warn("Discord 通知の削除に失敗しました", e));
+    }
     if (s.state !== "upcoming" || !s.known || notifySent.has(s.x.id)) continue;
     const left = s.at - now;
     if (left <= 0 || left > plan.notify_lead) continue;
