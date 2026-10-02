@@ -77,7 +77,7 @@ function defaultState() {
       display_team: false, display_boss: false, display_party: false,
     },
     extras: [],   // GUI が扱わない定数 [key, value]
-    players: [],  // {id, name, actions: [{start, boss, battle, rate}]}
+    players: [],  // {id, name, actions: [{start, boss, battle, rate, locked?}]}
   };
 }
 
@@ -230,18 +230,34 @@ function load() {
 
 // ---------------------------------------------------------------- 編集操作
 
-// 木製スライドパズル方式: k 番目を t へ動かし、接触したブロックだけを押し出す
+// 木製スライドパズル方式: k 番目を t へ動かし、接触したブロックだけを押し出す。
+// ロック中のブロックは動かず、押し出されもしない（間のブロックごと手前で止まる）
 function slideTo(actions, k, t) {
+  if (actions[k].locked) return;
   const len = blockLen();
-  const lo = k * len;
-  const hi = CHART_SEC - (actions.length - 1 - k) * len;
+  let lo = k * len;
+  let hi = CHART_SEC - (actions.length - 1 - k) * len;
+  let pinned = false;
+  actions.forEach((a, j) => {
+    if (!a.locked) return;
+    pinned = true;
+    if (j < k) lo = Math.max(lo, a.start + (k - j) * len);
+    else hi = Math.min(hi, a.start - (j - k) * len);
+  });
+  if (hi < lo && pinned) return;
   actions[k].start = hi < lo ? lo : clamp(t, lo, hi);
-  for (let j = k + 1; j < actions.length; j++) {
+  for (let j = k + 1; j < actions.length && !actions[j].locked; j++) {
     actions[j].start = Math.max(actions[j].start, actions[j - 1].start + len);
   }
-  for (let j = k - 1; j >= 0; j--) {
+  for (let j = k - 1; j >= 0 && !actions[j].locked; j--) {
     actions[j].start = Math.min(actions[j].start, actions[j + 1].start - len);
   }
+}
+
+// ロックは GUI の状態（下書き・Undo）にだけ持ち、txt には出力しない。false は持たずにキーごと消す
+function toggleLock(a) {
+  if (a.locked) delete a.locked;
+  else a.locked = true;
 }
 
 // 待機秒数を保ったまま timelag を変える (txt を手で書き換えたのと同じ結果)
@@ -425,9 +441,16 @@ function render() {
       const d = dmap.get(`${pi}:${ai}`);
       const bossColor = colors[state.constants[a.boss]];
       const block = h("div", {
-        class: "block" + (selP && selection.a === ai ? " selected" : ""),
+        class: "block" + (selP && selection.a === ai ? " selected" : "") + (a.locked ? " locked" : ""),
         style: { top: `${a.start * scale}px`, height: `${len * scale}px` },
         onpointerdown: (e) => startDrag(e, pi, ai, "move"),
+        // 右クリックでボスを 1st → 2nd → 3rd → Realm → 1st の順に切り替える
+        oncontextmenu: (e) => {
+          e.preventDefault();
+          selection = { p: pi, a: ai };
+          mutate(() => { a.boss = BOSSES[(BOSSES.indexOf(a.boss) + 1) % BOSSES.length]; });
+          switchTab("select");
+        },
       });
       block.append(h("div", { class: "fill" },
         h("div", { class: "lag", style: { height: `${lag * scale}px` } }),
@@ -443,7 +466,7 @@ function render() {
       // 最小倍率でもブロックに収まるよう 3 行に抑える
       const bs = a.start + lag;
       block.append(h("div", { class: "info", style: { top: `${lag * scale + 1}px` } },
-        h("div", { class: "time" }, `${clock(bs)}–${clock(bs + a.battle)}`),
+        h("div", { class: "time" }, a.locked ? "🔒" : null, `${clock(bs)}–${clock(bs + a.battle)}`),
         h("div", {}, `${BOSS_LABEL[a.boss]} ${a.battle}s`,
           a.rate < 1 ? h("span", { class: "rate" }, ` ${Math.round(Math.max(a.rate, 0) * 100)}%`) : null),
         d ? h("div", {}, h("span", { class: "lv" }, `Lv${String(d.level).padStart(2, "0")} `), h("span", { class: "score" }, fmt(d.est_score))) : null));
@@ -484,7 +507,8 @@ function startDrag(e, pi, ai, mode) {
     tip.hidden = false;
     tip.style.left = `${ev.clientX + 14}px`;
     tip.style.top = `${ev.clientY + 10}px`;
-    tip.textContent = mode === "move"
+    tip.textContent = mode === "move" && a.locked ? "ロック中（L キーで解除）"
+      : mode === "move"
       ? `戦闘開始 ${clock(a.start + timelag())}（待機 ${a.start - (ai ? acts[ai - 1].start + blockLen() : 0)}秒）`
       : `戦闘 ${a.battle}秒（終了 ${clock(a.start + timelag() + a.battle)}）`;
   };
@@ -565,7 +589,7 @@ function renderSide() {
       const wait = a.start - (ai ? p.actions[ai - 1].start + len : 0);
       parts.push(h("h3", {}, `戦闘 #${ai + 1}`),
         field("出撃 (push)", h("input", {
-          value: clock(a.start), title: remaining() ? "残り時間を mm:ss または秒数で" : "mm:ss または秒数",
+          value: clock(a.start), disabled: !!a.locked, title: remaining() ? "残り時間を mm:ss または秒数で" : "mm:ss または秒数",
           onchange: (e) => {
             let t = parseTime(e.target.value);
             if (t === null) { showStatus("時刻は mm:ss か秒数で入力してください"); renderSide(); return; }
@@ -574,10 +598,12 @@ function renderSide() {
           },
         })),
         field("待機秒数", h("input", {
-          type: "number", min: 0, value: wait,
+          type: "number", min: 0, value: wait, disabled: !!a.locked,
           onchange: (e) => mutate(() => slideTo(p.actions, ai, a.start + (parseInt(e.target.value) || 0) - wait)),
         })),
-        field("ボス", (() => { const s = bossSelect(a.boss); s.addEventListener("change", () => mutate(() => { a.boss = s.value; })); return s; })()),
+        h("label", { class: "row", title: "ドラッグで動かせず、他のブロックにも押し出されなくなります (L)" },
+          h("input", { type: "checkbox", checked: !!a.locked, onchange: () => mutate(() => toggleLock(a)) }), "🔒 位置をロック (L)"),
+        field("ボス", (() => { const s = bossSelect(a.boss); s.title = "1〜4 キー、またはブロックの右クリックでも切り替えられます"; s.addEventListener("change", () => mutate(() => { a.boss = s.value; })); return s; })()),
         field("戦闘秒数", h("input", {
           type: "number", min: 1, max: MAX_BATTLE, value: a.battle,
           onchange: (e) => mutate(() => { a.battle = clamp(parseInt(e.target.value) || 1, 1, MAX_BATTLE); }),
@@ -587,13 +613,14 @@ function renderSide() {
           onchange: (e) => mutate(() => { const r = parseFloat(e.target.value); a.rate = Number.isFinite(r) ? r : 1; }),
         })),
         d ? h("p", { class: "hint" }, `戦闘 ${clock(d.battle_start)}–${clock(d.battle_end)}　再出撃 ${clock(d.cool_off)}　Lv${d.level}　${fmt(d.est_score)} / ${fmt(d.score)}`) : null,
+        h("p", { class: "hint" }, "ブロックの右クリックでボスを順に切り替え、1〜4 キーで直接指定できます。"),
         h("div", { class: "row" },
           h("span", { class: "grow" }),
           h("button", { class: "danger", onclick: () => mutate(() => { p.actions.splice(ai, 1); selection.a = null; }) }, "戦闘を削除 (Del)")));
     }
   } else {
     parts.push(h("p", { class: "hint" },
-      "ブロックをドラッグすると時刻を変えられます。隙間があればそのブロックだけが動き、隣に当たると押し出します。下端のドラッグで戦闘時間を変えられます。"));
+      "ブロックをドラッグすると時刻を変えられます。隙間があればそのブロックだけが動き、隣に当たると押し出します。下端のドラッグで戦闘時間を変えられます。右クリックでボスを順に切り替え、選択中に 1〜4 キーで直接指定できます。"));
   }
 
   // プレイヤー追加
@@ -788,6 +815,16 @@ function bindUI() {
       e.preventDefault();
       const { p, a } = selection;
       mutate(() => { state.players[p].actions.splice(a, 1); selection.a = null; });
+    } else if (/^[1-4]$/.test(key) && !e.ctrlKey && !e.metaKey && !e.altKey && selection && selection.a !== null) {
+      // 選択中のブロックのボスを 1=1st 2=2nd 3=3rd 4=Realm で直接指定する
+      e.preventDefault();
+      const act = state.players[selection.p].actions[selection.a];
+      const boss = BOSSES[Number(key) - 1];
+      if (act.boss !== boss) mutate(() => { act.boss = boss; });
+    } else if (key === "l" && !e.ctrlKey && !e.metaKey && !e.altKey && selection && selection.a !== null) {
+      e.preventDefault();
+      const act = state.players[selection.p].actions[selection.a];
+      mutate(() => toggleLock(act));
     } else if (key === "escape") { $("#modal").hidden = true; }
   });
 }
