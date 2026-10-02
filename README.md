@@ -132,6 +132,7 @@ bash deploy/deploy.sh
 | `--concurrency` | 32 | 1 台が同時に受けるリクエスト数 |
 | CPU / メモリ | 1 / 1GiB | 画像生成 1 回で数百 MB 使う |
 | `STORE` | `firestore` | 進捗管理のセッションを Firestore に保存（再起動・複数台でも共有） |
+| `SUPPORT_URL` | （空） | 画面右上の「♡ 開発を支援」のリンク先（第 5 章）。空ならリンクを出さない |
 | `PLAN_BUCKET` | `chartmaker-output` | 画像生成した作戦 txt の保存先（第 5 章）。`PLAN_BUCKET= bash deploy/deploy.sh` で保存しない |
 
 - ビルドしたイメージ（Artifact Registry）は新しい 2 つだけ残し、アップロードしたソースの zip（バケット `run-sources-<プロジェクトID>-asia-northeast1`）は 7 日で自動削除する設定も同時に入れています。どちらも保管料を無料枠に収めるため
@@ -209,6 +210,17 @@ plans/20261001_003_47040000_44940000.txt
 - 同じ作戦でも画像生成するたびに別ファイルとして保存される
 - 保存に失敗しても画像生成は失敗にならない（ログに「作戦の保存に失敗しました」と出る）
 - ローカル（`PLAN_BUCKET` 未設定）では保存しない
+
+### 支援（寄付）リンク
+
+`SUPPORT_URL` に寄付ページの URL を設定すると、エディタと進捗管理の画面右上に「♡ 開発を支援」ボタンが出ます（別タブで開く）。
+
+```sh
+SUPPORT_URL=https://ofuse.me/<ユーザー名> bash deploy/deploy.sh
+```
+
+- `https://` で始まる URL だけ有効。未設定ならボタンは出ない
+- `deploy.sh` は毎回環境変数を設定し直すので、**以後のデプロイでも毎回 `SUPPORT_URL=...` を付ける**（付け忘れるとボタンが消える）。`deploy.sh` の既定値を書き換えてもよい
 
 ---
 
