@@ -18,6 +18,9 @@ let bestRtt = Infinity;
 let busy = false;
 let lastSync = 0;
 let ui = {};               // 作り置きの要素
+let notifyPaused = false;  // 全端末共通の Discord 通知の停止 (サーバーに保存)
+let ended = false;         // セッションが破棄された (または見つからない)
+let tickTimer = null;
 const notifySent = new Set(); // この端末から Discord 通知を頼んだ戦闘 (plan.detail の添字)
 const notifyCleared = new Set(); // そのうち、出撃したので通知の削除を頼んだ戦闘
 
@@ -190,12 +193,22 @@ function buildBoard() {
   }));
   $("#board").hidden = false;
   $("#btn-share").hidden = false;
+  $("#btn-end").hidden = false;
   if (plan.notify_lead) {
-    $("#notify").textContent = plan.notify_tts === false
-      ? `💬 Discord 通知 (読み上げなし): ${plan.notify_lead}秒前`
-      : `🔊 Discord 読み上げ: ${plan.notify_lead}秒前`;
     $("#notify").hidden = false;
+    $("#btn-notify").hidden = false;
+    renderNotify();
   }
+}
+
+function renderNotify() {
+  if (!plan?.notify_lead) return;
+  $("#notify").textContent = notifyPaused ? "🔇 Discord 通知: 停止中"
+    : plan.notify_tts === false ? `💬 Discord 通知 (読み上げなし): ${plan.notify_lead}秒前`
+    : `🔊 Discord 読み上げ: ${plan.notify_lead}秒前`;
+  $("#notify").classList.toggle("late-text", notifyPaused);
+  $("#btn-notify").textContent = notifyPaused ? "通知を再開" : "通知を止める";
+  $("#btn-notify").disabled = busy;
 }
 
 function playerTag(d, big) {
@@ -219,7 +232,7 @@ function setText(el, text) {
 }
 
 function render() {
-  if (!plan) return;
+  if (!plan || ended) return;
   const now = elapsed();
   const pr = progress();
 
@@ -336,6 +349,7 @@ function render() {
       })
       : [h("div", { class: "empty" }, "まだ討伐はありません")]);
   $("#btn-undo").disabled = busy || !events.length;
+  renderNotify();
 
   const stale = Date.now() - lastSync > 5000;
   setText($("#sync"), stale ? "サーバーと同期できていません" : "同期中");
@@ -345,10 +359,11 @@ function render() {
 // 出撃 N 秒前になった戦闘をサーバー経由で Discord に読み上げさせ、出撃したらそのメッセージを消させる。
 // 出撃時刻は討伐待ちを無視した最も早い見込み (at) で判断するので、前のボスが倒れていなくても呼びかける。
 // その時点で NOTIFY_GROUP 秒以内に続けて出撃する人は 1 通にまとめる。
-// 開いている端末がそれぞれ送るが、サーバーが 1 戦 1 回にまとめる
+// 開いている端末がそれぞれ送るが、サーバーが 1 戦 1 回にまとめる。
+// 止めている間も、送り済みのメッセージの削除は続ける
 const NOTIFY_GROUP = 5;
 function notifyUpcoming(sched, now) {
-  if (!plan.notify_lead) return;
+  if (!plan.notify_lead || ended) return;
   for (const s of sched) {
     if (notifySent.has(s.x.id) && s.state !== "upcoming" && !notifyCleared.has(s.x.id)) {
       notifyCleared.add(s.x.id);
@@ -356,6 +371,7 @@ function notifyUpcoming(sched, now) {
         .catch((e) => console.warn("Discord 通知の削除に失敗しました", e));
     }
   }
+  if (notifyPaused) return;
   const pending = sched.filter((s) => s.state === "upcoming" && !notifySent.has(s.x.id));
   if (!pending.some((s) => s.at - now <= plan.notify_lead)) return;
   const group = pending.filter((s) => s.at - now <= plan.notify_lead + NOTIFY_GROUP)
@@ -372,6 +388,7 @@ function applyResponse(j) {
   version = j.version;
   if (j.plan && !plan) { plan = j.plan; buildBoard(); }
   if (j.events) events = j.events;
+  if ("notify_paused" in j) notifyPaused = j.notify_paused;
   lastSync = Date.now();
 }
 
@@ -379,7 +396,7 @@ async function poll() {
   try {
     applyResponse(await api("GET", `/api/sessions/${sessionId()}?since=${plan ? version : 0}`));
   } catch (e) {
-    if (e.status === 404) { showStatus(e.message); return; }
+    if (e.status === 404) { endSession(plan ? "このセッションは破棄されました（または期限切れです）" : e.message); return; }
   }
   setTimeout(poll, POLL_MS);
 }
@@ -400,6 +417,33 @@ async function act(path, body) {
 
 function kill(boss) {
   return act("kill", { floor: progress().floor, boss });
+}
+
+function toggleNotify() {
+  if (!notifyPaused && !confirm("全端末の Discord 通知を止めますか？ (再開するまで読み上げもテキストも送りません)")) return;
+  act("notify/pause", { paused: !notifyPaused });
+}
+
+async function discard() {
+  if (!confirm("このセッションを破棄しますか？\n全端末で進行管理が終わり、Discord 通知も止まります。元に戻せません。")) return;
+  try {
+    await api("DELETE", `/api/sessions/${sessionId()}`);
+    endSession("セッションを破棄しました");
+  } catch (e) {
+    if (e.status === 404) endSession("このセッションは既に破棄されています（または期限切れです）");
+    else showStatus(e.message);
+  }
+}
+
+// 破棄・期限切れになったら盤面を閉じ、通知の依頼も含めて何もしなくなる
+function endSession(msg) {
+  ended = true;
+  clearInterval(tickTimer);
+  for (const id of ["#board", "#btn-share", "#btn-end", "#btn-notify", "#notify"]) $(id).hidden = true;
+  clearTimeout(showStatus.timer);
+  $("#status").classList.remove("ok");
+  $("#status").textContent = msg;
+  $("#status").hidden = false;
 }
 
 function undo() {
@@ -470,9 +514,11 @@ function init() {
     try { await navigator.clipboard.writeText(location.href); showStatus("URL をコピーしました", true); } catch (e) { prompt("この URL を共有してください", location.href); }
   });
   $("#btn-undo").addEventListener("click", undo);
+  $("#btn-notify").addEventListener("click", toggleNotify);
+  $("#btn-end").addEventListener("click", discard);
   if (!sessionId()) { showSetup(); return; }
   poll();
-  setInterval(render, TICK_MS);
+  tickTimer = setInterval(render, TICK_MS);
 }
 
 init();

@@ -49,3 +49,14 @@ def test_cached_store_reuses_get_and_checks_expiry(monkeypatch):
     now[0] += 0.5
     with pytest.raises(NotFound):
         s.get(sid)
+
+
+def test_delete_returns_doc_and_clears_cache():
+    s = CachedStore(MemoryStore())
+    sid = s.create({"events": [1]})
+    s.get(sid)  # キャッシュに載せる
+    assert s.delete(sid)["events"] == [1]
+    with pytest.raises(NotFound):
+        s.get(sid)
+    with pytest.raises(NotFound):
+        s.delete(sid)

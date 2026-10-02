@@ -357,13 +357,21 @@ def delete_discord(webhook, message_id):
     discord_request("DELETE", "{}/messages/{}".format(webhook, message_id))
 
 
+def delete_discord_quietly(webhook, message_id):
+    try:
+        delete_discord(webhook, message_id)
+    except Exception as e:
+        print("Discord の通知の削除に失敗しました:", repr(e))
+
+
 @app.get("/api/sessions/<sid>")
 def api_session_get(sid):
     doc = store.get(sid)
     since = request.args.get("since", type=int)
     if since == doc["version"]:
         return jsonify(version=doc["version"], server_now=now_ms())
-    return jsonify(version=doc["version"], plan=doc["plan"], events=doc["events"], server_now=now_ms())
+    return jsonify(version=doc["version"], plan=doc["plan"], events=doc["events"],
+                   notify_paused=bool(doc.get("notify_paused")), server_now=now_ms())
 
 
 def current_floor(events):
@@ -431,6 +439,9 @@ def api_session_notify(sid):
         if not all(0 <= b < len(doc["plan"]["detail"]) for b in battles):
             raise InputError("不正な指定です")
         # Firestore のトランザクションは再実行されることがあるので、毎回決め直す
+        if doc.get("notify_paused"):
+            result["sent"] = []  # 止めている間は送らず、通知済みにもしない
+            return doc
         result["sent"] = [b for b in battles if b not in doc["notified"]]
         doc["notified"].extend(result["sent"])
         return doc
@@ -461,8 +472,31 @@ def api_session_notify(sid):
                 for b in sent:
                     messages[str(b)] = {"id": str(message_id), "at": time.time()}
                 return doc
-            doc = store.update(sid, remember)
+            try:
+                doc = store.update(sid, remember)
+            except NotFound:
+                # 送っている間にセッションが破棄された。消す機会がもう無いので、すぐ消す
+                delete_discord_quietly(doc["discord"]["webhook"], message_id)
+                raise
     return jsonify(version=doc["version"], sent=sent, server_now=now_ms())
+
+
+@app.post("/api/sessions/<sid>/notify/pause")
+@rate_limit("kill", LIMIT_KILL)
+def api_session_notify_pause(sid):
+    """進行が大きく狂ったときなどに、全端末の Discord 通知を止める・再開する"""
+    paused = (request.get_json(silent=True) or {}).get("paused")
+    if not isinstance(paused, bool):
+        raise InputError("不正な指定です")
+
+    def apply(doc):
+        if not doc.get("discord"):
+            raise Conflict("Discord 通知は設定されていません")
+        doc["notify_paused"] = paused
+        return doc
+
+    doc = store.update(sid, apply)
+    return jsonify(version=doc["version"], notify_paused=paused, server_now=now_ms())
 
 
 # 消し忘れを残さないよう、これより古い通知は別の戦闘の削除のついでに消す
@@ -495,11 +529,20 @@ def api_session_notify_clear(sid):
 
     doc = store.update(sid, apply)
     for message_id in dict.fromkeys(m["id"] for m in removed):
-        try:
-            delete_discord(doc["discord"]["webhook"], message_id)
-        except Exception as e:
-            print("Discord の通知の削除に失敗しました:", repr(e))
+        delete_discord_quietly(doc["discord"]["webhook"], message_id)
     return jsonify(version=doc["version"], cleared=len(set(m["id"] for m in removed)), server_now=now_ms())
+
+
+@app.delete("/api/sessions/<sid>")
+@rate_limit("kill", LIMIT_KILL)
+def api_session_delete(sid):
+    """セッションを破棄する。全端末の進行管理が終わり、Discord 通知も以後は送られない"""
+    doc = store.delete(sid)
+    # まだ消していない通知メッセージも消す
+    ids = list(dict.fromkeys(m["id"] for m in (doc.get("messages") or {}).values()))
+    for message_id in ids:
+        delete_discord_quietly(doc["discord"]["webhook"], message_id)
+    return jsonify(deleted=True, cleared=len(ids), server_now=now_ms())
 
 
 if __name__ == "__main__":

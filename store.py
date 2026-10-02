@@ -1,6 +1,7 @@
 # 進行管理セッションの保存先
 # ローカルではプロセス内メモリ、Cloud Run では Firestore (環境変数 STORE=firestore) を使う。
 # どちらも update(id, fn) で fn に現在の doc を渡し、fn が返した doc を version+1 して保存する。
+# delete(id) は doc を消して、消した doc を返す。
 import copy
 import datetime
 import os
@@ -63,6 +64,12 @@ class MemoryStore:
             self._docs[sid] = doc
             return copy.deepcopy(doc)
 
+    def delete(self, sid):
+        with self._lock:
+            if sid not in self._docs or expired(self._docs[sid]):
+                raise NotFound(sid)
+            return self._docs.pop(sid)
+
 
 class FirestoreStore:
     def __init__(self, collection="tracker_sessions"):
@@ -95,6 +102,20 @@ class FirestoreStore:
             doc["version"] += 1
             tx.set(ref, doc)
             return doc
+
+        return run(self._client.transaction())
+
+    def delete(self, sid):
+        """消した doc を返す (残っている Discord のメッセージを消すため)"""
+        ref = self._col.document(sid)
+
+        @self._fs.transactional
+        def run(tx):
+            snap = ref.get(transaction=tx)
+            if not snap.exists or expired(snap.to_dict()):
+                raise NotFound(sid)
+            tx.delete(ref)
+            return snap.to_dict()
 
         return run(self._client.transaction())
 
@@ -139,6 +160,11 @@ class CachedStore:
         doc = self._inner.update(sid, fn)
         self._put(sid, doc)
         return copy.deepcopy(doc)
+
+    def delete(self, sid):
+        with self._lock:
+            self._cache.pop(sid, None)
+        return self._inner.delete(sid)
 
 
 def make_store():
