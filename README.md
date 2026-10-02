@@ -3,7 +3,7 @@
 レイドのタイムチャート（1 列 = 1 プレイヤー、1 px = 1 秒、60 分）を PNG で作るツールです。
 ブラウザで作戦を編集するエディタと、本番中に討伐状況を複数端末で共有する進捗管理画面（`/tracker`）があります。
 
-- 公開先: Google Cloud Run（サービス名 `chartmaker`、リージョン `asia-northeast1`）
+- 公開先: https://chartmaker.jp （Google Cloud Run、サービス名 `chartmaker`、リージョン `asia-northeast1`）
 - 開発者向けの詳しい仕様は [CLAUDE.md](CLAUDE.md) を参照
 
 ---
@@ -143,6 +143,41 @@ bash deploy/deploy.sh
 2. 「画像生成」で PNG が出ること
 3. 「進捗管理」でセッションを作り、別の端末で同じ URL を開いて、討伐ボタンが 1 秒ほどで同期すること
 
+### 独自ドメイン（chartmaker.jp）
+
+ドメインはお名前.com で取得し、Cloud Run のドメインマッピングで割り当てています（Google Cloud 側の料金は無料、HTTPS 証明書は自動で発行・更新）。
+割り当ては再デプロイしても消えないので、`deploy.sh` の変更は不要です。`run.app` の URL も引き続き使えます。
+
+設定済みのため、通常は何もしなくてよいです。作り直すときの手順は次のとおりです。
+
+1. **ドメインの所有を証明する**: `gcloud domains verify chartmaker.jp` で開く Search Console の TXT レコードを DNS に追加し、「確認」を押す
+2. **Cloud Run に割り当てる**
+
+   ```sh
+   gcloud beta run domain-mappings create      --service=chartmaker --domain=chartmaker.jp      --region=asia-northeast1 --project="$PROJECT"
+   ```
+
+3. **表示された A / AAAA レコードを DNS に追加する**
+4. **証明書の発行を待つ**（DNS の反映後、15 分〜24 時間）。次のコマンドで `CertificateProvisioned` が `True` になれば完了
+
+   ```sh
+   gcloud beta run domain-mappings describe      --domain=chartmaker.jp --region=asia-northeast1 --project="$PROJECT"
+   ```
+
+#### お名前.com の設定
+
+Navi →「ドメイン」→「DNS設定/転送設定」→ `chartmaker.jp` →「DNSレコード設定を利用する」で、次のレコードを入れています（ホスト名はすべて空欄）。
+
+| TYPE | VALUE |
+|---|---|
+| A | 216.239.32.21 / 216.239.34.21 / 216.239.36.21 / 216.239.38.21（4 行） |
+| AAAA | 2001:4860:4802:32::15 / 2001:4860:4802:34::15 / 2001:4860:4802:36::15 / 2001:4860:4802:38::15（4 行） |
+| TXT | `google-site-verification=...`（所有権の確認用。**消さない**） |
+
+- ネームサーバーは `01.dnsv.jp`〜`04.dnsv.jp`（お名前.com の DNS）。お名前.com のレンタルサーバーを契約していると DNS レコード設定が使えず、ネームサーバーが `ns-rs*.gmoserver.jp` のままになる
+- ドメインの期限が切れるとサイトに繋がらなくなるので、お名前.com の自動更新を有効にしておく
+- 反映の確認: `nslookup -type=A chartmaker.jp 8.8.8.8`
+
 ---
 
 ## 5. アプリ側の負荷・料金対策
@@ -212,6 +247,7 @@ gcloud run services update-traffic chartmaker --project="$PROJECT" --region=asia
 | `'export' は、内部コマンドまたは外部コマンド…` | cmd で実行している。Git Bash で実行する（[2 章](#2-コマンドを打つ環境windows)） |
 | gcloud が `Python` とだけ出して失敗する | `CLOUDSDK_PYTHON` が未設定。[2 章](#2-コマンドを打つ環境windows)の `export` を実行する |
 | `gcloud: command not found` | gcloud に PATH が通っていない。[2 章](#2-コマンドを打つ環境windows)の `PATH` を設定する |
+| `chartmaker.jp` だけ開かない（`run.app` は開く） | ドメインの期限切れか DNS の変更。お名前.com の更新状況と DNS レコード（第 4 章）を確認する |
 | サイトが開かなくなった | 予算超過で課金が止まった可能性。コンソールの「お支払い」でプロジェクトに請求先アカウントを紐づけ直すと再開する（必要なら予算額も見直す） |
 | 進捗管理で「セッションが見つかりません」 | 作成から 24 時間を過ぎたセッションは自動で消える。作り直す |
 | 429 / 503 が出る | 第 5 章の回数制限・同時実行数の上限。少し待つ |
