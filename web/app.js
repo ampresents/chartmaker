@@ -74,7 +74,7 @@ function defaultState() {
       timelag: String(CONFIG.timelag),
       "1st_boss": "blue", "2nd_boss": "red", "3rd_boss": "green", "Realm_boss": "yellow",
       image_1st: blank, image_2nd: blank, image_3rd: blank, image_realm: blank,
-      display_team: true, display_boss: false, display_party: false,
+      display_team: false, display_boss: false, display_party: false,
     },
     extras: [],   // GUI が扱わない定数 [key, value]
     players: [],  // {id, name, actions: [{start, boss, battle, rate}]}
