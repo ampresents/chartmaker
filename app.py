@@ -7,10 +7,9 @@ import os
 import tempfile
 import threading
 import time
-import re
 from collections import deque
 
-from flask import Flask, Response, abort, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory
 
 from ChartLib import (BASE_DIR, BOSSES, REGULAR_BOSSES, IMAGE_KEYS, COOL_TIME, MAX_PLAYERS,
                       parse, generate_detail, generate_chart, calc_level)
@@ -31,17 +30,6 @@ RENDER_WAIT = 20              # 空きを待つ秒数。過ぎたら 503
 SUPPORT_URL = os.environ.get("SUPPORT_URL", "").strip()
 if not SUPPORT_URL.startswith("https://"):
     SUPPORT_URL = ""
-
-# Google AdSense。ADSENSE_CLIENT (ca-pub-数字) と枠ごとの広告ユニット ID を設定したときだけ広告を出す。
-# 形式が違う値は使わない (ページに埋め込むので)
-ADSENSE_CLIENT = os.environ.get("ADSENSE_CLIENT", "").strip()
-if not re.fullmatch(r"ca-pub-\d+", ADSENSE_CLIENT):
-    ADSENSE_CLIENT = ""
-AD_SLOTS = {}  # 枠の名前 -> 広告ユニット ID
-for _name, _env in (("editor", "ADSENSE_SLOT_EDITOR"), ("tracker", "ADSENSE_SLOT_TRACKER")):
-    _slot = os.environ.get(_env, "").strip()
-    if ADSENSE_CLIENT and re.fullmatch(r"\d+", _slot):
-        AD_SLOTS[_name] = _slot
 
 WEB_DIR = os.path.join(BASE_DIR, "web")
 IMAGE_DIR = os.path.join(BASE_DIR, "image")
@@ -183,20 +171,6 @@ def icon():
     return send_from_directory(BASE_DIR, "icon.png")
 
 
-# AdSense のサイト確認と広告枠の正当性を示す ads.txt。ADSENSE_CLIENT がなければ 404
-@app.get("/ads.txt")
-def ads_txt():
-    if not ADSENSE_CLIENT:
-        abort(404)
-    pub = ADSENSE_CLIENT[len("ca-"):]
-    return Response("google.com, {}, DIRECT, f08c47fec0942fa0\n".format(pub), mimetype="text/plain")
-
-
-@app.get("/privacy")
-def privacy():
-    return send_from_directory(WEB_DIR, "privacy.html")
-
-
 @app.get("/image/<path:name>")
 def image(name):
     return send_from_directory(IMAGE_DIR, name)
@@ -212,7 +186,7 @@ def api_config():
 
 @app.get("/api/site")
 def api_site():
-    return jsonify(support_url=SUPPORT_URL, ad_client=ADSENSE_CLIENT, ad_slots=AD_SLOTS)
+    return jsonify(support_url=SUPPORT_URL)
 
 
 @app.post("/api/parse")
