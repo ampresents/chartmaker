@@ -46,6 +46,11 @@ py -3.11 -m venv .venv
 - Undo/redo (Ctrl+Z / Ctrl+Y) keeps state snapshots. The working state is autosaved to `localStorage` in the browser only.
 - Changing a block's boss without the settings panel: right-click a block to rotate it 1st → 2nd → 3rd → Realm → 1st, or press `1`–`4` with a block selected to set it directly. Each change is one undo step.
 - `↑`/`↓` move the selected block by 1 s (`Shift` = 10 s) through `slideTo`, so pushes and locks behave as in a drag (`nudge`). Presses on the same block less than 1 s apart, with no other change in between, merge into one undo step. A press that moves nothing is ignored.
+- Multi-select (stage 1):
+  - `Ctrl`+click adds or removes a block. `Shift`+click selects a range in the anchor's column; in another column it selects the block alone. `Esc` or pointerdown on an empty column area clears the selection. A plain click or drag selects one block.
+  - State: `multi` holds `[{p, a}]` only when 2+ blocks are selected. `selection` stays a block, which is the Shift anchor. Always change the selection through `setSelection`, and read it through `selectedBlocks()`.
+  - Boss changes (1–4 keys, right-click, panel), lock (`L` locks all if any is unlocked, otherwise unlocks all), battle seconds, rate, and delete apply to every selected block. Empty "混在" (mixed) fields are ignored.
+  - Times cannot be changed together: the panel hides them and `↑`/`↓` do nothing. Group movement is planned as stage 2.
 - Timeline drag works like a sliding puzzle. A block moves alone through gaps and pushes touching neighbours. Pushed blocks stay where they were pushed.
 - A block can be locked (`L` key or the checkbox in the side panel; shown with 🔒 and a dashed border). `slideTo` never moves a locked block, and pushes stop in front of it. The lock is kept only in the GUI state (`locked: true` on the action, in the localStorage draft and undo history). It is not written to the txt, so importing a txt clears all locks. `setTimelag` still shifts locked blocks, because it keeps every wait_seconds.
 - The plan is to deploy publicly on Google Cloud (Cloud Run with gunicorn). Keep the server stateless.
