@@ -20,6 +20,7 @@ let scale = 0.25;          // px / 秒
 let details = [];          // /api/detail の結果 (出力順)
 let detailTimer = null;
 let textDirty = false;
+let lastNudge = null;      // {p, a, t, after}  連続した矢印キー移動を 1 回の Undo にまとめる
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -252,6 +253,23 @@ function slideTo(actions, k, t) {
   for (let j = k - 1; j >= 0 && !actions[j].locked; j--) {
     actions[j].start = Math.min(actions[j].start, actions[j + 1].start - len);
   }
+}
+
+// 矢印キーで選択中のブロックを dt 秒ずらす（押し出しは slideTo と同じ）。
+// 同じブロックへの連続操作（1 秒以内、間に他の変更なし）は 1 回の Undo にまとめる
+function nudge(dt) {
+  const { p, a } = selection;
+  const act = state.players[p].actions[a];
+  if (act.locked) return;
+  const before = snapshot();
+  const now = Date.now();
+  const merge = lastNudge && lastNudge.p === p && lastNudge.a === a && now - lastNudge.t < 1000 && lastNudge.after === before;
+  slideTo(state.players[p].actions, a, act.start + dt);
+  const after = snapshot();
+  if (after === before) return;  // 端やロックで動けなかった
+  if (!merge) commit(before);
+  lastNudge = { p, a, t: now, after };
+  afterChange();
 }
 
 // ロックは GUI の状態（下書き・Undo）にだけ持ち、txt には出力しない。false は持たずにキーごと消す
@@ -589,7 +607,7 @@ function renderSide() {
       const wait = a.start - (ai ? p.actions[ai - 1].start + len : 0);
       parts.push(h("h3", {}, `戦闘 #${ai + 1}`),
         field("戦闘開始", h("input", {
-          value: clock(a.start), disabled: !!a.locked, title: remaining() ? "残り時間がこの時にバトル開始の予定" : "経過時間がこの時にバトル開始の予定",
+          value: clock(a.start), disabled: !!a.locked, title: (remaining() ? "残り時間がこの時にバトル開始の予定" : "経過時間がこの時にバトル開始の予定") + "。↑↓ キーで 1 秒ずつ（Shift で 10 秒）動かせます",
           onchange: (e) => {
             let t = parseTime(e.target.value);
             if (t === null) { showStatus("時刻は mm:ss か秒数で入力してください"); renderSide(); return; }
@@ -613,14 +631,14 @@ function renderSide() {
           onchange: (e) => mutate(() => { const r = parseFloat(e.target.value); a.rate = Number.isFinite(r) ? r : 1; }),
         })),
         d ? h("p", { class: "hint" }, `戦闘 ${clock(d.battle_start)}–${clock(d.battle_end)}　再出撃 ${clock(d.cool_off)}　Lv${d.level}　${fmt(d.est_score)} / ${fmt(d.score)}`) : null,
-        h("p", { class: "hint" }, "ブロックの右クリックでボスを順に切り替え、1〜4 キーで直接指定できます。"),
+        h("p", { class: "hint" }, "↑↓ キーで 1 秒ずつ（Shift で 10 秒）動かせます。ブロックの右クリックでボスを順に切り替え、1〜4 キーで直接指定できます。"),
         h("div", { class: "row" },
           h("span", { class: "grow" }),
           h("button", { class: "danger", onclick: () => mutate(() => { p.actions.splice(ai, 1); selection.a = null; }) }, "戦闘を削除 (Del)")));
     }
   } else {
     parts.push(h("p", { class: "hint" },
-      "ブロックをドラッグすると時刻を変えられます。隙間があればそのブロックだけが動き、隣に当たると押し出します。下端のドラッグで戦闘時間を変えられます。右クリックでボスを順に切り替え、選択中に 1〜4 キーで直接指定できます。"));
+      "ブロックをドラッグすると時刻を変えられます。隙間があればそのブロックだけが動き、隣に当たると押し出します。下端のドラッグで戦闘時間を変えられます。右クリックでボスを順に切り替え、選択中に 1〜4 キーで直接指定、↑↓ キーで 1 秒ずつ（Shift で 10 秒）動かせます。"));
   }
 
   // プレイヤー追加
@@ -825,6 +843,10 @@ function bindUI() {
       e.preventDefault();
       const act = state.players[selection.p].actions[selection.a];
       mutate(() => toggleLock(act));
+    } else if ((key === "arrowup" || key === "arrowdown") && !e.ctrlKey && !e.metaKey && !e.altKey && selection && selection.a !== null) {
+      // ↑ で 1 秒早く、↓ で 1 秒遅く。Shift で 10 秒
+      e.preventDefault();
+      nudge((key === "arrowup" ? -1 : 1) * (e.shiftKey ? 10 : 1));
     } else if (key === "escape") { $("#modal").hidden = true; }
   });
 }

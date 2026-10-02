@@ -45,6 +45,7 @@ py -3.11 -m venv .venv
 - Saved files are named after today's date: `YYYYMMDD.txt` from the text panel and `YYYYMMDD.png` from the image preview (`dateStem()`).
 - Undo/redo (Ctrl+Z / Ctrl+Y) keeps state snapshots. The working state is autosaved to `localStorage` in the browser only.
 - Changing a block's boss without the settings panel: right-click a block to rotate it 1st → 2nd → 3rd → Realm → 1st, or press `1`–`4` with a block selected to set it directly. Each change is one undo step.
+- `↑`/`↓` move the selected block by 1 s (`Shift` = 10 s) through `slideTo`, so pushes and locks behave as in a drag (`nudge`). Presses on the same block less than 1 s apart, with no other change in between, merge into one undo step. A press that moves nothing is ignored.
 - Timeline drag works like a sliding puzzle. A block moves alone through gaps and pushes touching neighbours. Pushed blocks stay where they were pushed.
 - A block can be locked (`L` key or the checkbox in the side panel; shown with 🔒 and a dashed border). `slideTo` never moves a locked block, and pushes stop in front of it. The lock is kept only in the GUI state (`locked: true` on the action, in the localStorage draft and undo history). It is not written to the txt, so importing a txt clears all locks. `setTimelag` still shifts locked blocks, because it keeps every wait_seconds.
 - The plan is to deploy publicly on Google Cloud (Cloud Run with gunicorn). Keep the server stateless.
