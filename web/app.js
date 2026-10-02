@@ -66,14 +66,14 @@ function blockLen(st = state) { return timelag(st) + COOL_TIME; }
 // ---------------------------------------------------------------- 状態
 
 function defaultState() {
-  const unknown = IMAGES.includes("/image/0_unknown.png") ? "/image/0_unknown.png" : IMAGES[0] || "";
+  const blank = IMAGES.includes("/image/blank.png") ? "/image/blank.png" : IMAGES[0] || "";
   return {
     constants: {
       comment: CONFIG.comment,
       start_time: "",
       timelag: String(CONFIG.timelag),
       "1st_boss": "blue", "2nd_boss": "red", "3rd_boss": "green", "Realm_boss": "yellow",
-      image_1st: unknown, image_2nd: unknown, image_3rd: unknown, image_realm: unknown,
+      image_1st: blank, image_2nd: blank, image_3rd: blank, image_realm: blank,
       display_team: true, display_boss: false, display_party: false,
     },
     extras: [],   // GUI が扱わない定数 [key, value]
