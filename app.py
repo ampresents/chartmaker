@@ -178,7 +178,9 @@ def image(name):
 
 @app.get("/api/config")
 def api_config():
-    images = sorted(os.path.basename(p) for p in glob.glob(os.path.join(IMAGE_DIR, "*.png")))
+    # 既定画像の blank.png を先頭に、残りはファイル名順
+    images = sorted((os.path.basename(p) for p in glob.glob(os.path.join(IMAGE_DIR, "*.png"))),
+                    key=lambda n: (n != "blank.png", n))
     return jsonify(config=load_config(), images=["/image/" + n for n in images])
 
 
