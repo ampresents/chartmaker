@@ -9,6 +9,9 @@ const MAX_PLAYERS = 20;
 const MAX_BATTLE = 300;
 const STORAGE_KEY = "chartmaker.draft.v1";
 const SEP = "################################";
+const REGULAR_BOSSES = BOSSES.slice(0, 3);
+const SNAP_PX = 10;        // ドラッグがこの px 以内に近づいたら推定位置に吸着する
+const SNAP_MARGIN = 6;     // 撃破の何秒後に吸着させるかの既定値
 
 let CONFIG = null;
 let IMAGES = [];
@@ -18,10 +21,12 @@ let redoStack = [];
 let selection = null;      // {p, a}  a は null ならプレイヤー選択。複数選択中は Shift+クリックの起点
 let multi = [];            // 複数選択中の戦闘 [{p, a}, ...]（2 個以上のときだけ使い、1 個以下なら空）
 let scale = 0.25;          // px / 秒
+let snapMargin = SNAP_MARGIN;  // 撃破から次の出撃までの余裕（秒）。作戦ではなく編集の好みなので txt には出さない
 let details = [];          // /api/detail の結果 (出力順)
 let detailTimer = null;
 let textDirty = false;
 let lastNudge = null;      // {key, t, after}  連続した矢印キー移動を 1 回の Undo にまとめる
+let snapGuide = null;      // {t, src: Set}  ドラッグ中に吸着している位置と、その根拠のブロック ("p:a")
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -317,7 +322,7 @@ function deleteSelected() {
 }
 
 function save() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ state, scale })); } catch (e) { /* 保存できなくても動作は続ける */ }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ state, scale, snapMargin })); } catch (e) { /* 保存できなくても動作は続ける */ }
 }
 
 function load() {
@@ -325,6 +330,7 @@ function load() {
     const d = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (d && d.state && Array.isArray(d.state.players)) {
       if (d.scale) scale = d.scale;
+      if (Number.isInteger(d.snapMargin)) snapMargin = d.snapMargin;
       fillPlayers(d.state.players);
       return d.state;
     }
@@ -443,16 +449,92 @@ function setTimelag(v) {
   });
 }
 
-function addActionAt(p, t) {
+// ---------------------------------------------------------------- スナップ（推定位置への吸着）
+
+// ChartLib.calc_level の JS 版。exclude ("p:a" の Set) を除いた戦闘で階の進行を再現し、
+// 階ごとの撃破 {kills: {ボス: {t, key}}, realm: {t, key}} を返す（t は battle_end、key は根拠のブロック）
+function simulateFloors(exclude) {
+  const lag = timelag();
+  const items = [];
+  state.players.forEach((p, pi) => p.actions.forEach((a, ai) => {
+    const key = `${pi}:${ai}`;
+    if (!exclude.has(key)) items.push({ push: a.start, end: a.start + lag + a.battle, boss: a.boss, key });
+  }));
+  // Python の sorted((push_start, battle_end, action)) と同じ順
+  items.sort((x, y) => x.push - y.push || x.end - y.end || (x.boss < y.boss ? -1 : x.boss > y.boss ? 1 : 0));
+  const floors = [{ kills: {}, realm: { t: 0, key: null } }];
+  const floor = (f) => floors[f] || (floors[f] = { kills: {}, realm: null });
+  const earlier = (cur, it) => (!cur || it.end < cur.t ? { t: it.end, key: it.key } : cur);
+  let cur = 1;
+  for (const it of items) {
+    if (it.boss === "Realm_boss") {
+      const f = floor(cur);
+      if (REGULAR_BOSSES.some((b) => !f.kills[b])) floors[cur - 1].realm = earlier(floors[cur - 1].realm, it);
+      else { f.realm = earlier(f.realm, it); cur++; }
+    } else if (it.push > floors[cur - 1].realm.t) {
+      const f = floor(cur);
+      f.kills[it.boss] = earlier(f.kills[it.boss], it);
+    }
+  }
+  return floors;
+}
+
+// boss のブロックを列 pi に置くときの吸着先 [{t, label, src: [key]}]（t は push_start）
+// - 1st/2nd/3rd: 他の列の 1st/2nd/3rd と同時出撃、または Realm 撃破で次の階が開いた snapMargin 秒後
+//   （calc_level は push_start > Realm 撃破 で数えるので、余裕 0 でも最低 1 秒あける）
+// - Realm: その階の 1st/2nd/3rd が 3 体とも撃破された snapMargin 秒後
+function snapCandidates(pi, boss, exclude) {
+  const floors = simulateFloors(exclude);
+  const out = [];
+  if (boss === "Realm_boss") {
+    floors.forEach((f, n) => {
+      if (!n || REGULAR_BOSSES.some((b) => !f.kills[b])) return;
+      const ks = REGULAR_BOSSES.map((b) => f.kills[b]);
+      out.push({ t: Math.max(...ks.map((k) => k.t)) + snapMargin, label: `${n}F 1st/2nd/3rd 撃破 +${snapMargin}秒`, src: ks.map((k) => k.key) });
+    });
+    return out;
+  }
+  state.players.forEach((p, pj) => {
+    if (pj === pi) return;
+    p.actions.forEach((a, aj) => {
+      const key = `${pj}:${aj}`;
+      if (a.boss === "Realm_boss" || exclude.has(key)) return;
+      out.push({ t: a.start, label: `${p.name || p.id} の ${BOSS_LABEL[a.boss]} と同時`, src: [key] });
+    });
+  });
+  floors.forEach((f, n) => {
+    if (n && f.realm) out.push({ t: f.realm.t + Math.max(snapMargin, 1), label: `${n + 1}F 開放 +${Math.max(snapMargin, 1)}秒`, src: [f.realm.key] });
+  });
+  return out;
+}
+
+// raw 秒に画面上で SNAP_PX 以内の候補があれば、いちばん近いものを返す
+function snapTo(raw, cands) {
+  let best = null;
+  for (const c of cands) {
+    const d = Math.abs(c.t - raw);
+    if (d <= SNAP_PX / scale && (!best || d < Math.abs(best.t - raw))) best = c;
+  }
+  return best;
+}
+
+function addActionAt(p, t, noSnap = false) {
   const acts = state.players[p].actions;
   const len = blockLen();
   let i = acts.findIndex((a) => a.start > t);
   if (i < 0) i = acts.length;
+  const prev = acts[i - 1] || acts[i];
+  const boss = prev ? prev.boss : "1st_boss";
+  const s = noSnap ? null : snapTo(t, snapCandidates(p, boss, new Set()));
+  if (s) {
+    t = s.t;
+    i = acts.findIndex((a) => a.start > t);
+    if (i < 0) i = acts.length;
+  }
   const lo = i > 0 ? acts[i - 1].start + len : 0;
   const hi = (i < acts.length ? acts[i].start : CHART_SEC + len) - len;
   if (hi < lo) { showStatus("ここには入る余地がありません（前後のブロックと重なります）"); return; }
-  const prev = acts[i - 1] || acts[i];
-  const a = { start: clamp(t, lo, hi), boss: prev ? prev.boss : "1st_boss", battle: prev ? prev.battle : 30, rate: 1 };
+  const a = { start: clamp(t, lo, hi), boss, battle: prev ? prev.battle : 30, rate: 1 };
   mutate(() => { acts.splice(i, 0, a); setSelection([{ p, a: i }]); });
 }
 
@@ -604,17 +686,19 @@ function render() {
       },
       ondblclick: (e) => {
         if (e.target !== body) return;
-        addActionAt(pi, Math.round((e.offsetY / scale) - lag));
+        addActionAt(pi, Math.round((e.offsetY / scale) - lag), e.altKey);
       },
     },
     h("div", { class: "hline half", style: { top: `${1800 * scale}px` } }),
-    h("div", { class: "hline end", style: { top: `${CHART_SEC * scale}px` } }));
+    h("div", { class: "hline end", style: { top: `${CHART_SEC * scale}px` } }),
+    snapGuide ? h("div", { class: "hline snap", style: { top: `${snapGuide.t * scale}px` } }) : null);
 
     p.actions.forEach((a, ai) => {
       const d = dmap.get(`${pi}:${ai}`);
       const bossColor = colors[state.constants[a.boss]];
       const block = h("div", {
-        class: "block" + (selKeys.has(`${pi}:${ai}`) ? " selected" : "") + (a.locked ? " locked" : ""),
+        class: "block" + (selKeys.has(`${pi}:${ai}`) ? " selected" : "") + (a.locked ? " locked" : "")
+          + (snapGuide && snapGuide.src.has(`${pi}:${ai}`) ? " snap-src" : ""),
         style: { top: `${a.start * scale}px`, height: `${len * scale}px` },
         onpointerdown: (e) => startDrag(e, pi, ai, "move"),
         // 右クリックでボスを 1st → 2nd → 3rd → Realm → 1st の順に切り替える。
@@ -677,6 +761,10 @@ function startDrag(e, pi, ai, mode) {
   const start0 = a.start;
   const battle0 = a.battle;
   let moved = false;
+  // 吸着先はつかんだ時点の配置から 1 回だけ求める（動かすブロック自身は根拠にしない）
+  const cands = mode === "move" && !groupLocked
+    ? snapCandidates(pi, a.boss, new Set((group ? multi : [{ p: pi, a: ai }]).map((x) => `${x.p}:${x.a}`)))
+    : [];
   const tip = h("div", { class: "drag-tip", hidden: true });
   document.body.append(tip);
 
@@ -684,10 +772,16 @@ function startDrag(e, pi, ai, mode) {
     if (!moved && Math.abs(ev.clientY - y0) < 3) return;
     moved = true;
     const dt = Math.round((ev.clientY - y0) / scale);
-    if (group) shiftSelected(start0 + dt - a.start);
-    else if (mode === "move") slideTo(acts, ai, start0 + dt);
+    // Alt を押している間は吸着しない
+    const snap = ev.altKey ? null : snapTo(start0 + dt, cands);
+    const target = snap ? snap.t : start0 + dt;
+    if (group) shiftSelected(target - a.start);
+    else if (mode === "move") slideTo(acts, ai, target);
     else a.battle = clamp(battle0 + dt, 1, MAX_BATTLE);
     if (!group) setSelection([{ p: pi, a: ai }]);
+    // ロックや端で止まって届かなかったときは吸着を表示しない
+    const snapped = snap && a.start === snap.t ? snap : null;
+    snapGuide = snapped ? { t: snapped.t, src: new Set(snapped.src) } : null;
     render();
     tip.hidden = false;
     tip.style.left = `${ev.clientX + 14}px`;
@@ -699,12 +793,14 @@ function startDrag(e, pi, ai, mode) {
       : mode === "move"
       ? `戦闘開始 ${clock(a.start + timelag())}（待機 ${a.start - (ai ? acts[ai - 1].start + blockLen() : 0)}秒）`
       : `戦闘 ${a.battle}秒（終了 ${clock(a.start + timelag() + a.battle)}）`;
+    if (snapped) tip.textContent += ` ⇢ ${snapped.label}`;
   };
   const onUp = () => {
     document.removeEventListener("pointermove", onMove);
     document.removeEventListener("pointerup", onUp);
     document.removeEventListener("pointercancel", onUp);
     tip.remove();
+    snapGuide = null;
     if (moved) { commit(before); afterChange(); }
     else { setSelection([{ p: pi, a: ai }]); render(); renderSide(); switchTab("select"); }
   };
@@ -872,6 +968,11 @@ function renderSettings() {
       type: "number", min: 0, value: timelag(),
       title: "戦闘開始ボタン押下と再出撃可能時間のカウント開始のズレを見積もる。（推奨 0～3秒）",
       onchange: (e) => mutate(() => setTimelag(Math.max(0, parseInt(e.target.value) || 0))),
+    })),
+    field("スナップの余裕(秒)", h("input", {
+      type: "number", min: 0, max: 60, value: snapMargin,
+      title: "ドラッグで Realm や次の階の 1st/2nd/3rd を置くとき、直前のボスの撃破から何秒あけた位置に吸着させるか。このブラウザにだけ保存し、作戦には含めません",
+      onchange: (e) => { snapMargin = clamp(parseInt(e.target.value) || 0, 0, 60); e.target.value = snapMargin; save(); },
     })),
     h("h3", {}, "ボス（属性色・画像）"),
   ];
