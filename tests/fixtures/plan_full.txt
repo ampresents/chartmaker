@@ -8,10 +8,10 @@
 ::2nd_boss=yellow
 ::3rd_boss=blue
 ::Realm_boss=red
-::image_1st=/image/LI_4025011.png
-::image_2nd=/image/LI_4031011.png
+::image_1st=/image/BossImage_4025011.png
+::image_2nd=/image/BossImage_4031011.png
 ::image_3rd=/image/blank.png
-::image_realm=/image/LI_4025011.png
+::image_realm=/image/BossImage_4025011.png
 ::display_team
 ::display_boss
 ::display_party
