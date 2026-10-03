@@ -11,7 +11,7 @@
 <header class="toolbar">
   <h1><img src="/logo.png" alt="ChartMaker" width="380" height="72"></h1>
   <button id="btn-new" title="空の作戦を作る">新規</button>
-  <label class="btn">txtを開く<input id="file-open" type="file" accept=".txt,text/plain" hidden></label>
+  <label class="btn">テキストを開く<input id="file-open" type="file" accept=".txt,text/plain" hidden></label>
   <span class="sep"></span>
   <button id="btn-undo" title="元に戻す (Ctrl+Z)">↶ 元に戻す</button>
   <button id="btn-redo" title="やり直す (Ctrl+Y)">↷ やり直す</button>
@@ -37,6 +37,12 @@
 
 <main>
   <section id="timeline-wrap">
+    <div id="guide" hidden>
+      <div class="guide-card">
+        <b>列の空いた場所をダブルクリックすると、その時刻に戦闘を追加できます</b>
+        <span>既存の作戦は「テキストを開く」で読み込めます</span>
+      </div>
+    </div>
     <div id="timeline"></div>
   </section>
 
@@ -52,12 +58,12 @@
     <div class="panel" id="panel-select"></div>
     <div class="panel" id="panel-settings" hidden></div>
     <div class="panel" id="panel-text" hidden>
-      <p class="hint">GUIの内容から生成された txt です。直接書き換えて「テキストを反映」でGUIに取り込めます。</p>
+      <p class="hint">GUIの内容から生成されたテキストです。直接書き換えて「テキストを反映」でGUIに取り込めます。</p>
       <textarea id="text" spellcheck="false"></textarea>
       <div class="row">
         <button id="btn-apply-text" disabled>テキストを反映</button>
         <button id="btn-copy">コピー</button>
-        <button id="btn-save-text">.txt 保存</button>
+        <button id="btn-save-text">テキストを保存</button>
       </div>
     </div>
   </aside>

@@ -98,12 +98,18 @@ body.resizing { cursor: col-resize; user-select: none; }
     repeating-linear-gradient(to bottom, var(--grid-5min) 0 2px, transparent 2px var(--five)),
     repeating-linear-gradient(to bottom, var(--grid-min) 0 1px, transparent 1px var(--min)); }
 .axis .col-body { background: none; }
+/* 戦闘が 1 つもないときの案内。スクロールしても見える位置に置き、クリックは下の列へ通す */
+#guide { position: sticky; top: 0; left: 0; height: 0; z-index: 6; pointer-events: none; }
+#guide[hidden] { display: none; }
+.guide-card { position: absolute; top: 120px; left: 50%; transform: translateX(-50%); width: max-content; max-width: 90%;
+  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 20px; text-align: center;
+  background: #000c; border: 1px dashed var(--accent); border-radius: 6px; color: var(--fg); }
+.guide-card span { color: var(--muted); font-size: 12px; }
 .axis .tick { position: absolute; right: 6px; font-size: 11px; color: rgb(240, 180, 0); transform: translateY(-50%); }
 .axis .tick.half { color: rgb(140, 100, 240); font-weight: bold; }
 .hline { position: absolute; left: 0; right: 0; height: 3px; transform: translateY(-1px); pointer-events: none; }
 .hline.half { background: var(--grid-30min); }
 .hline.end { background: rgb(240, 180, 0); }
-.col.add { display: flex; justify-content: center; padding-top: 10px; border: 0; width: 60px; }
 
 .block { position: absolute; left: 3px; right: 3px; cursor: grab; user-select: none; overflow: hidden;
   border-radius: 2px; }
