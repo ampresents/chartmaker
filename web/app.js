@@ -79,8 +79,19 @@ function defaultState() {
       display_team: false, display_boss: false, display_party: false,
     },
     extras: [],   // GUI が扱わない定数 [key, value]
-    players: [],  // {id, name, actions: [{start, boss, battle, rate, locked?}]}
+    players: fillPlayers([]),  // 常に MAX_PLAYERS 人 {id, name, actions: [{start, boss, battle, rate, locked?}]}
   };
+}
+
+// プレイヤーの追加・削除はなく、列は常に MAX_PLAYERS 人。足りない分を空の列 (ID は P01〜) で埋める
+const DEFAULT_ID = /^P\d{2}$/;
+function fillPlayers(players) {
+  const used = new Set(players.map((p) => p.id));
+  for (let n = 1; players.length < MAX_PLAYERS; n++) {
+    const id = "P" + String(n).padStart(2, "0");
+    if (!used.has(id)) players.push({ id, name: "", actions: [] });
+  }
+  return players;
 }
 
 function looksLikePlayer(key) {
@@ -90,6 +101,7 @@ function looksLikePlayer(key) {
 // ChartLib.parse の結果から状態を作る (calc_level と同じ手順で絶対秒に戻す)
 function stateFromParsed(commands, constants) {
   const st = defaultState();
+  st.players = [];
   for (const f of Object.keys(FLAGS)) st.constants[f] = f in constants;
   for (const [k, v] of Object.entries(constants)) {
     if (KNOWN_KEYS.has(k) && !(k in FLAGS)) st.constants[k] = v ?? "";
@@ -109,14 +121,15 @@ function stateFromParsed(commands, constants) {
   }
   for (const [k, v] of Object.entries(constants)) {
     if (KNOWN_KEYS.has(k) || byId[k]) continue;
-    // ::ID=表示名 で ID と表示名が同じもの（ID 空欄で追加した人）も戦闘がなくてもプレイヤーとみなす
-    if (looksLikePlayer(k) || k === v) {
+    // ::ID=表示名 で ID と表示名が同じもの（ID 空欄で名前を付けた人）や空の列の ID (P01〜) も、戦闘がなくてもプレイヤーとみなす
+    if (looksLikePlayer(k) || k === v || DEFAULT_ID.test(k)) {
       byId[k] = { id: k, name: v ?? "", actions: [] };
       st.players.push(byId[k]);
     } else {
       st.extras.push([k, v]);
     }
   }
+  fillPlayers(st.players);
   return st;
 }
 
@@ -312,6 +325,7 @@ function load() {
     const d = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (d && d.state && Array.isArray(d.state.players)) {
       if (d.scale) scale = d.scale;
+      fillPlayers(d.state.players);
       return d.state;
     }
   } catch (e) { /* 壊れた下書きは無視 */ }
@@ -440,15 +454,6 @@ function addActionAt(p, t) {
   const prev = acts[i - 1] || acts[i];
   const a = { start: clamp(t, lo, hi), boss: prev ? prev.boss : "1st_boss", battle: prev ? prev.battle : 30, rate: 1 };
   mutate(() => { acts.splice(i, 0, a); setSelection([{ p, a: i }]); });
-}
-
-function nextFreeId(team) {
-  const used = new Set(state.players.map((p) => p.id));
-  for (let n = 1; n < 100; n++) {
-    const id = team + String(n).padStart(2, "0");
-    if (!used.has(id)) return id;
-  }
-  return null;
 }
 
 // ID は ::ID=表示名 の定数キーにもなるため、txt の区切り文字と既存の設定キーは使えない
@@ -645,11 +650,8 @@ function render() {
 
     cols.push(h("div", { class: "col" }, head, body));
   });
-
-  if (state.players.length < MAX_PLAYERS) {
-    cols.push(h("div", { class: "col add" }, h("button", { title: "プレイヤーを追加", onclick: () => { clearSelection(); render(); renderSide(); switchTab("select"); $("#add-name")?.focus(); } }, "＋")));
-  }
   tl.replaceChildren(...cols);
+  $("#guide").hidden = state.players.some((p) => p.actions.length);
 }
 
 function startDrag(e, pi, ai, mode) {
@@ -806,9 +808,7 @@ function renderSide() {
       idHint(),
       h("div", { class: "row" },
         h("button", { disabled: pi === 0, onclick: () => mutate(() => { state.players.splice(pi - 1, 0, ...state.players.splice(pi, 1)); selection.p = pi - 1; }) }, "← 左へ"),
-        h("button", { disabled: pi === state.players.length - 1, onclick: () => mutate(() => { state.players.splice(pi + 1, 0, ...state.players.splice(pi, 1)); selection.p = pi + 1; }) }, "右へ →"),
-        h("span", { class: "grow" }),
-        h("button", { class: "danger", onclick: () => { if (confirm(`${p.name || p.id} を削除しますか？`)) mutate(() => { state.players.splice(pi, 1); selection = null; }); } }, "プレイヤー削除")),
+        h("button", { disabled: pi === state.players.length - 1, onclick: () => mutate(() => { state.players.splice(pi + 1, 0, ...state.players.splice(pi, 1)); selection.p = pi + 1; }) }, "右へ →")),
       h("p", { class: "hint" }, "列の空いた場所をダブルクリックすると戦闘を追加します。"));
 
     if (selection.a !== null) {
@@ -850,39 +850,10 @@ function renderSide() {
     }
   } else {
     parts.push(h("p", { class: "hint" },
-      "ブロックをドラッグすると時刻を変えられます。隙間があればそのブロックだけが動き、隣に当たると押し出します。下端のドラッグで戦闘時間を変えられます。右クリックでボスを順に切り替え、選択中に 1〜4 キーで直接指定、↑↓ キーで 1 秒ずつ（Shift で 10 秒）動かせます。Ctrl+クリックで複数選択、Shift+クリックで同じ列の範囲選択ができ、Esc か空いた場所のクリックで解除します。"));
+      "列の空いた場所をダブルクリックすると戦闘を追加できます。ブロックをドラッグすると時刻を変えられます。隙間があればそのブロックだけが動き、隣に当たると押し出します。下端のドラッグで戦闘時間を変えられます。右クリックでボスを順に切り替え、選択中に 1〜4 キーで直接指定、↑↓ キーで 1 秒ずつ（Shift で 10 秒）動かせます。Ctrl+クリックで複数選択、Shift+クリックで同じ列の範囲選択ができ、Esc か空いた場所のクリックで解除します。"));
   }
 
-  // プレイヤー追加
-  const full = state.players.length >= MAX_PLAYERS;
-  const autoId = nextFreeId(Object.keys(CONFIG.team.team_color)[0]);
-  const nameInput = h("input", { id: "add-name", placeholder: "例: シャドウ" });
-  const idInput = h("input", { id: "add-id", placeholder: "空欄なら表示名" });
-  parts.push(h("h3", {}, "プレイヤー追加"),
-    field("表示名", nameInput),
-    field("ID（任意）", idInput),
-    idHint(),
-    h("div", { class: "row" },
-      h("span", { class: "hint" }, `${state.players.length} / ${MAX_PLAYERS} 人`),
-      h("span", { class: "grow" }),
-      h("button", {
-        disabled: full,
-        onclick: () => {
-          // ID が空欄なら表示名を ID にする。両方空欄なら Alpha0N を振る
-          const name = sanitize(nameInput.value).trim();
-          const id = idInput.value.trim() || name || autoId;
-          if (!id) { showStatus("表示名か ID を入力してください"); return; }
-          const err = validId(id, -1);
-          if (err) { showStatus(err); return; }
-          showStatus(null);
-          mutate(() => {
-            state.players.push({ id, name, actions: [] });
-            selection = { p: state.players.length - 1, a: null };
-          });
-        },
-      }, "追加")));
-
-  panel.replaceChildren(...parts);
+  panel.replaceChildren(...parts.filter((x) => x));  // Lv/スコアの取得前は null が入る
   renderSettings();
 }
 
