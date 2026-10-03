@@ -437,18 +437,6 @@ function toggleLock(a) {
   else a.locked = true;
 }
 
-// 待機秒数を保ったまま timelag を変える (txt を手で書き換えたのと同じ結果)
-function setTimelag(v) {
-  const oldLen = blockLen();
-  const waits = state.players.map((p) => p.actions.map((a, i) => a.start - (i ? p.actions[i - 1].start + oldLen : 0)));
-  state.constants.timelag = String(v);
-  const len = blockLen();
-  state.players.forEach((p, pi) => {
-    let clock = 0;
-    p.actions.forEach((a, i) => { clock += waits[pi][i]; a.start = clock; clock += len; });
-  });
-}
-
 // ---------------------------------------------------------------- スナップ（推定位置への吸着）
 
 // ChartLib.calc_level の JS 版。exclude ("p:a" の Set) を除いた戦闘で階の進行を再現し、
@@ -963,11 +951,6 @@ function renderSettings() {
       type: "time", value: validStartTime(c.start_time) ? c.start_time.padStart(5, "0") : "",
       title: "ゲームの開始時刻。進行管理で使います",
       onchange: (e) => mutate(() => { c.start_time = e.target.value; }),
-    })),
-    field("ギャップ(秒)", h("input", {
-      type: "number", min: 0, value: timelag(),
-      title: "戦闘開始ボタン押下と再出撃可能時間のカウント開始のズレを見積もる。（推奨 0～3秒）",
-      onchange: (e) => mutate(() => setTimelag(Math.max(0, parseInt(e.target.value) || 0))),
     })),
     field("スナップの余裕(秒)", h("input", {
       type: "number", min: 0, max: 60, value: snapMargin,
