@@ -6,6 +6,8 @@ const REGULAR = BOSSES.slice(0, 3);
 const POLL_MS = 1000;
 const TICK_MS = 200;
 const NEXT_COUNT = 8;
+// 作戦画像 (ChartLib の固定レイアウト): 列の左端 120 + i*246、幅 240、y = 秒 + 160
+const CHART_X0 = 120, CHART_COL = 246, CHART_COL_W = 240, CHART_TOP = 160;
 const HANDOFF_KEY = "chartmaker.tracker.text";
 const WEBHOOK_KEY = "chartmaker.tracker.webhook";
 const TTS_KEY = "chartmaker.tracker.tts"; // "0" なら読み上げなし
@@ -172,6 +174,8 @@ function buildBoard() {
     players.get(x.raw_name).push(x);
   });
   plan.byPlayer = [...players.values()].map((v) => v.sort((a, b) => a.push_start - b.push_start));
+  // 作戦画像の列は generate_detail に初めて出てきた順 (= players の順)
+  plan.column = new Map([...players.keys()].map((name, i) => [name, i]));
   const st = new Date(plan.start_epoch_ms);
   $("#clock-sub").dataset.start = `開始 ${st.getMonth() + 1}/${st.getDate()} ${pad2(st.getHours())}:${pad2(st.getMinutes())}`;
 
@@ -191,6 +195,7 @@ function buildBoard() {
     ui.bosses[b] = { card, count, sub, btn };
     return card;
   }));
+  buildChart();
   $("#board").hidden = false;
   $("#btn-share").hidden = false;
   $("#btn-end").hidden = false;
@@ -199,6 +204,63 @@ function buildBoard() {
     $("#btn-notify").hidden = false;
     renderNotify();
   }
+}
+
+function buildChart() {
+  const img = $("#chart-img");
+  ui.chartNow = h("div", { class: "chart-now" });
+  img.addEventListener("load", () => { $("#chart-box").hidden = false; render(); }, { once: true });
+  img.addEventListener("error", () => { $("#chart-box").hidden = true; }, { once: true });
+  img.src = `/api/sessions/${sessionId()}/chart.png`;
+  // クリックで、横幅に合わせた縮小表示と原寸 (横スクロール) を切り替える
+  $("#chart-scroll").addEventListener("click", () => $("#chart-scroll").classList.toggle("full"));
+}
+
+// 作戦画像の上に重ねる矩形。位置は画像に対する % なので、縮小しても合う
+function chartHit(x, cls) {
+  const img = $("#chart-img");
+  const W = img.naturalWidth, H = img.naturalHeight;
+  const col = plan.column.get(x.raw_name);
+  return h("div", { class: `chart-hit ${cls}`, style: {
+    left: `${(CHART_X0 + col * CHART_COL) / W * 100}%`,
+    width: `${CHART_COL_W / W * 100}%`,
+    top: `${(x.push_start + CHART_TOP) / H * 100}%`,
+    height: `${Math.max(x.battle_end - x.push_start, 1) / H * 100}%`,
+  } });
+}
+
+function renderChart(sched, fighting, upcoming, now) {
+  const img = $("#chart-img");
+  if ($("#chart-box").hidden || !img.naturalHeight) return;
+  const overdue = (s) => s.at + (s.x.battle_end - s.x.push_start) < now;
+  const done = sched.filter((s) => s.state === "done" || s.state === "skip");
+  const key = [
+    done.map((s) => s.x.id).join(),
+    fighting.map((s) => `${s.x.id}${overdue(s) ? "!" : ""}`).join(),
+    upcoming.map((s) => s.x.id).join(),
+  ].join("|");
+  setChildren($("#chart-overlay"), key, () => [
+    ...done.map((s) => chartHit(s.x, "done")),
+    ...upcoming.map((s) => chartHit(s.x, "next")),
+    ...fighting.map((s) => chartHit(s.x, overdue(s) ? "fighting late" : "fighting")),
+    ui.chartNow,
+  ]);
+  // 作戦上の現在時刻。挑戦中のブロックより上にあれば、その分だけ遅れている
+  const line = ui.chartNow;
+  line.hidden = now < 0 || now > CHART_SEC;
+  line.style.top = `${(Math.floor(now) + CHART_TOP) / img.naturalHeight * 100}%`;
+}
+
+// 次に出撃: プレイヤーごとに次の 1 戦だけ。待機中を先に、あとは出撃の早い順
+function nextBattles(sched) {
+  const seen = new Set();
+  return sched.filter((s) => {
+    if (s.state !== "waiting" && s.state !== "upcoming") return false;
+    if (seen.has(s.x.raw_name)) return false;
+    seen.add(s.x.raw_name);
+    return !sched.some((o) => o.state === "fighting" && o.x.raw_name === s.x.raw_name);
+  }).sort((a, b) => (a.state === "waiting" ? 0 : 1) - (b.state === "waiting" ? 0 : 1) || a.at - b.at || a.x.push_start - b.x.push_start)
+    .slice(0, NEXT_COUNT);
 }
 
 function renderNotify() {
@@ -312,15 +374,7 @@ function render() {
     setText(el, left >= 0 ? `残り ${left}秒` : `${-left}秒 超過`);
   });
 
-  // プレイヤーごとに次の 1 戦だけ。待機中を先に、あとは出撃の早い順
-  const seen = new Set();
-  const upcoming = sched.filter((s) => {
-    if (s.state !== "waiting" && s.state !== "upcoming") return false;
-    if (seen.has(s.x.raw_name)) return false;
-    seen.add(s.x.raw_name);
-    return !sched.some((o) => o.state === "fighting" && o.x.raw_name === s.x.raw_name);
-  }).sort((a, b) => (a.state === "waiting" ? 0 : 1) - (b.state === "waiting" ? 0 : 1) || a.at - b.at || a.x.push_start - b.x.push_start)
-    .slice(0, NEXT_COUNT);
+  const upcoming = nextBattles(sched);
   setChildren($("#next"), upcoming.map((s) => s.x.id).join(), () =>
     upcoming.length
       ? upcoming.map((s) => h("div", { class: "next-row" },
@@ -334,6 +388,7 @@ function render() {
     setText(el, waiting ? "待機中" : `あと ${Math.max(0, Math.ceil(s.at - now))}秒`);
   });
 
+  renderChart(sched, fighting, upcoming, now);
   notifyUpcoming(sched, now);
 
   // 履歴 (新しい順)
