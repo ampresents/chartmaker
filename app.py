@@ -16,7 +16,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from ChartLib import (BASE_DIR, BOSSES, REGULAR_BOSSES, IMAGE_KEYS, COOL_TIME, MAX_PLAYERS,
                       parse, generate_detail, generate_chart, calc_level)
 from store import make_store, NotFound
-from archive import make_plan_archive
+from archive import make_plan_archive, SESSION_PREFIX
 
 MAX_TEXT = 200_000
 
@@ -219,17 +219,18 @@ def api_render():
         png = render_png(text, config)
     finally:
         render_slots.release()
-    archive_plan(text, commands, setting)
+    archive_plan(text, lambda: generate_detail(commands, setting))
     return app.response_class(png, mimetype="image/png")
 
 
-def archive_plan(text, commands, setting):
-    """画像生成できた作戦 txt を保存する。保存に失敗しても画像は返す"""
+def archive_plan(text, detail, **kw):
+    """画像生成やセッション作成に使った作戦 txt を保存する。保存に失敗しても処理は続ける"""
     if plan_archive is None:
         return
     try:
-        detail = generate_detail(commands, setting)
-        name = plan_archive.save(text, sum(d["score"] for d in detail), sum(d["est_score"] for d in detail))
+        if callable(detail):
+            detail = detail()
+        name = plan_archive.save(text, sum(d["score"] for d in detail), sum(d["est_score"] for d in detail), **kw)
         print("作戦を保存しました:", name)
     except Exception as e:
         print("作戦の保存に失敗しました:", repr(e))
@@ -293,7 +294,8 @@ def api_session_create():
     while clear_time and all(v is None for v in clear_time[-1].values()):
         clear_time.pop()
     keep = ("push_start", "battle_start", "battle_end", "action", "raw_name", "player_name", "team", "est_score", "level")
-    detail = [{k: d[k] for k in keep} for d in generate_detail(commands, setting)]
+    full_detail = generate_detail(commands, setting)
+    detail = [{k: d[k] for k in keep} for d in full_detail]
 
     icon_bg = setting.get("icon_bgcolor")
     bosses = {}
@@ -317,6 +319,7 @@ def api_session_create():
     plan["notify_tts"] = discord["tts"] if discord else None
     # Webhook URL と作戦テキスト (作戦画像用) は plan の外に置き、GET で返さない
     sid = store.create({"plan": plan, "events": [], "discord": discord, "notified": [], "text": text})
+    archive_plan(text, full_detail, prefix=SESSION_PREFIX, tag=sid)
     return jsonify(id=sid)
 
 
