@@ -69,6 +69,17 @@ body.late .toolbar { box-shadow: inset 0 -3px var(--late); }
 .boss-tag { display: inline-block; min-width: 46px; text-align: center; border-radius: 3px; padding: 0 4px;
   color: #111; font-weight: bold; font-size: 12px; }
 
+/* 注意点。今の時間帯に関係するものだけを目立つ枠で出す */
+.notes-box { background: #2a1830; border: 2px solid #ff7ad9; border-radius: 8px; padding: 10px 14px; }
+.notes-box[hidden] { display: none; }
+.notes-box h3 { margin: 0 0 8px; font-size: 14px; color: #ff7ad9; }
+.notes { display: flex; flex-direction: column; gap: 6px; }
+.note { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 18px; }
+.note .when { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.note .text { flex: 1 1 300px; font-weight: bold; overflow-wrap: anywhere; }
+.fight { flex-wrap: wrap; }
+.row-note { flex-basis: 100%; grid-column: 1 / -1; color: #ff9be4; font-size: 13px; overflow-wrap: anywhere; }
+
 .next { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .next-row { display: grid; grid-template-columns: 80px 1fr auto auto; gap: 8px; align-items: center; }
 .next-row .in { font-variant-numeric: tabular-nums; color: var(--fg); }

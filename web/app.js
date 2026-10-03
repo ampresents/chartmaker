@@ -55,6 +55,10 @@ const fmt = (n) => n.toLocaleString("en-US");
 const teamOf = (id) => id.slice(0, -2);
 // txt の構文を壊さないよう「=」と改行を置き換える
 const sanitize = (s) => String(s ?? "").replace(/[\r\n]+/g, " ").replace(/=/g, "＝");
+// 注意点の本文は 1 行・最大 NOTE_MAX 文字（app.py の NOTE_MAX と同じ）
+const NOTE_MAX = 200;
+const MAX_NOTES = 50;
+const noteText = (s) => [...String(s ?? "").replace(/\s+/g, " ").trim()].slice(0, NOTE_MAX).join("");
 
 function parseTime(v) {
   v = String(v).trim();
@@ -84,7 +88,8 @@ function defaultState() {
       display_team: false, display_boss: false, display_party: false,
     },
     extras: [],   // GUI が扱わない定数 [key, value]
-    players: fillPlayers([]),  // 常に MAX_PLAYERS 人 {id, name, actions: [{start, boss, battle, rate, locked?}]}
+    notes: [],    // 全体の注意点 [{start, end, text}]（作戦の経過秒）
+    players: fillPlayers([]),  // 常に MAX_PLAYERS 人 {id, name, actions: [{start, boss, battle, rate, locked?, note?}]}
   };
 }
 
@@ -138,17 +143,32 @@ function stateFromParsed(commands, constants) {
   return st;
 }
 
-// ロックは直前の行動行に付く「#lock」コメント行として txt に残す (parse はコメントとして読み飛ばす)
+// ロックと戦闘の注意点は直前の行動行に付く「#lock」「#note 本文」コメント行として txt に残す。
+// 全体の注意点は「#note@開始秒-終了秒 本文」。どれも parse はコメントとして読み飛ばす
 const LOCK_MARK = "#lock";
+const NOTE_MARK = "#note ";
+const RANGE_NOTE = /^#note@(\d+)-(\d+)(?: (.*))?$/;
 
-// txt の #lock 行を読み、ロックする行動を「ID → 何番目の行動か」の集合で返す (行の判定は ChartLib.parse と同じ)
-function lockedInText(text) {
+// txt のコメント行を読む。locked は「ID:何番目の行動か」の集合、notes はそのキー → 本文、ranges は全体の注意点
+// (行動行の判定は ChartLib.parse / app.py の parse_notes と同じ)
+function marksInText(text) {
   const locked = new Set();
+  const notes = new Map();
+  const ranges = [];
   const count = {};
   let last = null;
   for (const line of text.split(/\r?\n/)) {
     if (line.startsWith("#")) {
-      if (line.trim() === LOCK_MARK && last) locked.add(last);
+      const m = line.trimEnd().match(RANGE_NOTE);
+      if (m) {
+        const start = parseInt(m[1]), end = parseInt(m[2]), body = noteText(m[3]);
+        if (body && start < end && end <= CHART_SEC) ranges.push({ start, end, text: body });
+      } else if (line.trim() === LOCK_MARK && last) {
+        locked.add(last);
+      } else if (line.startsWith(NOTE_MARK) && last) {
+        const body = noteText(line.slice(NOTE_MARK.length));
+        if (body) notes.set(last, body);
+      }
       continue;
     }
     if (line.startsWith("::")) continue;
@@ -158,7 +178,7 @@ function lockedInText(text) {
     count[id] = (count[id] || 0) + 1;
     last = `${id}:${count[id] - 1}`;
   }
-  return locked;
+  return { locked, notes, ranges: ranges.slice(0, MAX_NOTES) };
 }
 
 // 状態から今のルールどおりの txt を作る
@@ -185,6 +205,11 @@ function toText(st = state) {
     for (const [k, v] of st.extras) out.push(v === null ? `::${k}` : `::${k}=${v}`);
     out.push(SEP);
   }
+  const ranges = (st.notes || []).filter((n) => noteText(n.text) && n.start < n.end);
+  if (ranges.length) {
+    for (const n of ranges) out.push(`#note@${n.start}-${n.end} ${noteText(n.text)}`);
+    out.push(SEP);
+  }
   const len = blockLen(st);
   for (const p of st.players) {
     if (!p.actions.length) continue;
@@ -195,6 +220,7 @@ function toText(st = state) {
       if (a.rate !== 1) line += `,${a.rate}`;
       out.push(line);
       if (a.locked) out.push(LOCK_MARK);
+      if (noteText(a.note)) out.push(NOTE_MARK + noteText(a.note));
       prevEnd = a.start + len;
     }
   }
@@ -332,6 +358,7 @@ function load() {
       if (d.scale) scale = d.scale;
       if (Number.isInteger(d.snapMargin)) snapMargin = d.snapMargin;
       fillPlayers(d.state.players);
+      if (!Array.isArray(d.state.notes)) d.state.notes = [];
       return d.state;
     }
   } catch (e) { /* 壊れた下書きは無視 */ }
@@ -583,8 +610,13 @@ async function importText(text) {
   try {
     const j = await (await api("/api/parse", { text })).json();
     const st = stateFromParsed(j.commands, j.constants);
-    const locked = lockedInText(text);
-    st.players.forEach((p) => p.actions.forEach((a, i) => { if (locked.has(`${p.id}:${i}`)) a.locked = true; }));
+    const marks = marksInText(text);
+    st.players.forEach((p) => p.actions.forEach((a, i) => {
+      const key = `${p.id}:${i}`;
+      if (marks.locked.has(key)) a.locked = true;
+      if (marks.notes.has(key)) a.note = marks.notes.get(key);
+    }));
+    st.notes = marks.ranges;
     replaceState(st);
     textDirty = false;
     updateText();
@@ -648,6 +680,15 @@ function render() {
   for (let m = 0; m <= 60; m += 5) {
     axisBody.append(h("div", { class: "tick" + (m === 30 ? " half" : ""), style: { top: `${m * 60 * scale}px` } }, `${String(remaining() ? 60 - m : m).padStart(2, "0")}:00`));
   }
+  // 全体の注意点の時間帯を時間軸の左端に細い帯で示す（押すと設定パネルの一覧へ）
+  state.notes.forEach((n, i) => {
+    axisBody.append(h("div", {
+      class: "note-band",
+      style: { top: `${n.start * scale}px`, height: `${Math.max((n.end - n.start) * scale, 2)}px`, left: `${(i % 3) * 5}px` },
+      title: `📝 ${clock(n.start)}–${clock(n.end)} ${n.text}`,
+      onclick: () => switchTab("settings"),
+    }));
+  });
   const cols = [h("div", { class: "axis" }, h("div", { class: "col-head" }), axisBody)];
   const selKeys = new Set(selectedBlocks().map((s) => `${s.p}:${s.a}`));
 
@@ -688,6 +729,7 @@ function render() {
         class: "block" + (selKeys.has(`${pi}:${ai}`) ? " selected" : "") + (a.locked ? " locked" : "")
           + (snapGuide && snapGuide.src.has(`${pi}:${ai}`) ? " snap-src" : ""),
         style: { top: `${a.start * scale}px`, height: `${len * scale}px` },
+        title: a.note ? `📝 ${a.note}` : null,
         onpointerdown: (e) => startDrag(e, pi, ai, "move"),
         // 右クリックでボスを 1st → 2nd → 3rd → Realm → 1st の順に切り替える。
         // 複数選択中のブロックなら、選択中すべてをこのブロックの次のボスにそろえる
@@ -715,7 +757,8 @@ function render() {
       block.append(h("div", { class: "info", style: { top: `${lag * scale + 1}px` } },
         h("div", { class: "time" }, a.locked ? "🔒" : null, `${clock(bs)}–${clock(bs + a.battle)}`),
         h("div", {}, `${BOSS_LABEL[a.boss]} ${a.battle}s`,
-          a.rate < 1 ? h("span", { class: "rate" }, ` ${Math.round(Math.max(a.rate, 0) * 100)}%`) : null),
+          a.rate < 1 ? h("span", { class: "rate" }, ` ${Math.round(Math.max(a.rate, 0) * 100)}%`) : null,
+          a.note ? " 📝" : null),
         d ? h("div", {}, h("span", { class: "lv" }, `Lv${String(d.level).padStart(2, "0")} `), h("span", { class: "score" }, fmt(d.est_score))) : null));
       body.append(block);
     });
@@ -926,6 +969,11 @@ function renderSide() {
           type: "number", min: 0, max: 1, step: 0.05, value: a.rate, title: "ワンパンは 1 となります。1.0 未満なら市松模様と % を表示します",
           onchange: (e) => mutate(() => { const r = parseFloat(e.target.value); a.rate = Number.isFinite(r) ? r : 1; }),
         })),
+        field("注意点", h("textarea", {
+          class: "note-input", rows: 2, maxLength: NOTE_MAX, value: a.note || "",
+          placeholder: "実戦で共有したいこと（進行管理で出撃前から表示し、呼び出しに続けて読み上げます）",
+          onchange: (e) => mutate(() => { const t = noteText(e.target.value); if (t) a.note = t; else delete a.note; }),
+        })),
         d ? h("p", { class: "hint" }, `戦闘 ${clock(d.battle_start)}–${clock(d.battle_end)}　再出撃 ${clock(d.cool_off)}　Lv${d.level}　${fmt(d.est_score)} / ${fmt(d.score)}`) : null,
         h("p", { class: "hint" }, "↑↓ キーで 1 秒ずつ（Shift で 10 秒）動かせます。ブロックの右クリックでボスを順に切り替え、1〜4 キーで直接指定できます。Ctrl+クリックで複数選択、Shift+クリックで同じ列の範囲選択ができます。"),
         h("div", { class: "row" },
@@ -939,6 +987,43 @@ function renderSide() {
 
   panel.replaceChildren(...parts.filter((x) => x));  // Lv/スコアの取得前は null が入る
   renderSettings();
+}
+
+// 全体の注意点の一覧。時刻は戦闘開始の入力と同じく clock() で表示・入力する（残り時間表示にも従う）
+function renderRangeNotes() {
+  const timeInput = (n, k) => h("input", {
+    class: "note-time", value: clock(n[k]), title: k === "start" ? "表示を始める時刻" : "表示を終える時刻",
+    onchange: (e) => {
+      let t = parseTime(e.target.value);
+      if (t !== null && remaining()) t = CHART_SEC - t;
+      const next = { ...n, [k]: t };
+      if (t === null || t < 0 || t > CHART_SEC || next.start >= next.end) {
+        showStatus("注意点の時刻は mm:ss か秒数で、開始が終了より前になるように入力してください");
+        renderSettings();
+        return;
+      }
+      showStatus(null);
+      mutate(() => { n[k] = t; });
+    },
+  });
+  const rows = state.notes.map((n, i) => h("div", { class: "note-row" },
+    timeInput(n, "start"), h("span", {}, "–"), timeInput(n, "end"),
+    h("button", { class: "danger", title: "この注意点を削除", onclick: () => mutate(() => { state.notes.splice(i, 1); }) }, "×"),
+    h("input", {
+      class: "note-text", value: n.text, maxLength: NOTE_MAX, placeholder: "本文（空なら保存されません）",
+      onchange: (e) => mutate(() => { n.text = noteText(e.target.value); }),
+    })));
+  const add = () => mutate(() => {
+    const start = Math.min(state.notes.reduce((m, n) => Math.max(m, n.end), 0), CHART_SEC - 60);
+    state.notes.push({ start, end: start + 60, text: "" });
+  });
+  return [
+    h("h3", {}, "全体の注意点"),
+    ...rows,
+    h("div", { class: "row" },
+      h("button", { onclick: add, disabled: state.notes.length >= MAX_NOTES }, "＋ 追加"),
+      h("span", { class: "hint" }, "進行管理で、この時間帯に表示し、開始時刻に読み上げます")),
+  ];
 }
 
 function renderSettings() {
@@ -957,6 +1042,7 @@ function renderSettings() {
       title: "ドラッグで Realm や次の階の 1st/2nd/3rd を置くとき、直前のボスの撃破から何秒あけた位置に吸着させるか。このブラウザにだけ保存し、作戦には含めません",
       onchange: (e) => { snapMargin = clamp(parseInt(e.target.value) || 0, 0, 60); e.target.value = snapMargin; save(); },
     })),
+    ...renderRangeNotes(),
     h("h3", {}, "ボス（属性色・画像）"),
   ];
   for (const b of BOSSES) {

@@ -25,6 +25,9 @@ let ended = false;         // セッションが破棄された (または見つ
 let tickTimer = null;
 const notifySent = new Set(); // この端末から Discord 通知を頼んだ戦闘 (plan.detail の添字)
 const notifyCleared = new Set(); // そのうち、出撃したので通知の削除を頼んだ戦闘
+const noteSent = new Set();     // この端末から Discord 通知を頼んだ全体の注意点 (plan.notes の添字)
+const noteCleared = new Set();  // そのうち、始まったので通知の削除を頼んだもの
+const NOTE_LEAD = 30;           // 通知なしのセッションで、注意点を何秒前から出すか
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -364,7 +367,7 @@ function render() {
   setChildren($("#fighting"), fighting.map((s) => s.x.id).join(), () =>
     fighting.length
       ? fighting.map((s) => h("div", { class: "fight", style: { "--boss": bgr(plan.bosses[s.x.action].color) } },
-        bossTag(s.x.action), playerTag(s.x, true), h("span", { class: "left" })))
+        bossTag(s.x.action), playerTag(s.x, true), h("span", { class: "left" }), rowNote(s.x)))
       : [h("div", { class: "empty" }, "なし")]);
   $("#fighting").querySelectorAll(".left").forEach((el, i) => {
     // 作戦の戦闘時間に対する残り。過ぎたら超過として赤字
@@ -379,7 +382,7 @@ function render() {
     upcoming.length
       ? upcoming.map((s) => h("div", { class: "next-row" },
         h("span", { class: "in" }), playerTag(s.x, false), bossTag(s.x.action),
-        h("span", { class: "muted", title: "作戦の出撃時刻" }, mmss(s.x.push_start))))
+        h("span", { class: "muted", title: "作戦の出撃時刻" }, mmss(s.x.push_start)), rowNote(s.x)))
       : [h("div", { class: "empty" }, "なし")]);
   $("#next").querySelectorAll(".in").forEach((el, i) => {
     const s = upcoming[i];
@@ -388,6 +391,7 @@ function render() {
     setText(el, waiting ? "待機中" : `あと ${Math.max(0, Math.ceil(s.at - now))}秒`);
   });
 
+  renderNotes(sched, now);
   renderChart(sched, fighting, upcoming, now);
   notifyUpcoming(sched, now);
 
@@ -411,6 +415,50 @@ function render() {
   $("#sync").classList.toggle("late-text", stale);
 }
 
+function rowNote(x) {
+  return x.note ? h("span", { class: "row-note" }, `📝 ${x.note}`) : null;
+}
+
+const noteLead = () => plan.notify_lead || NOTE_LEAD;
+
+// 注意点の欄。戦闘の注意点は出撃の noteLead 秒前から出撃待ち・挑戦中の間、
+// 全体の注意点は作戦の開始秒ちょうどから終了秒まで出す
+function renderNotes(sched, now) {
+  const lead = noteLead();
+  const battles = sched.filter((s) => s.x.note
+    && (s.state === "fighting" || s.state === "waiting" || (s.state === "upcoming" && s.at - now <= lead)));
+  const ranges = (plan.notes || []).map((n, i) => ({ ...n, i })).filter((n) => n.start <= now && now < n.end);
+  const items = [
+    ...ranges.map((n) => ({ key: `n${n.i}`, at: n.start, make: () => h("div", { class: "note" },
+      h("span", { class: "when" }, `${mmss(n.start)}–${mmss(n.end)}`), h("span", { class: "text" }, n.text)) })),
+    ...battles.map((s) => ({ key: `b${s.x.id}`, at: s.at, make: () => h("div", { class: "note" },
+      playerTag(s.x, false), bossTag(s.x.action), h("span", { class: "text" }, s.x.note)) })),
+  ].sort((a, b) => a.at - b.at);
+  $("#notes-box").hidden = !items.length;
+  setChildren($("#notes"), items.map((x) => x.key).join(), () => items.map((x) => x.make()));
+}
+
+// 全体の注意点は開始秒ちょうどに「注意: 本文」として 1 件ずつ送り、NOTE_SPEAK 秒後 (読み終えたころ) に消させる。
+// 開始から NOTE_SPEAK 秒を過ぎてから開いた端末は、古い注意点を送らない。
+// 戦闘の注意点はサーバーが出撃の呼び出しに追記するので、ここでは扱わない
+const NOTE_SPEAK = 30;
+function notifyNotes(now) {
+  (plan.notes || []).forEach((n, i) => {
+    if (noteSent.has(i) && now >= n.start + NOTE_SPEAK && !noteCleared.has(i)) {
+      noteCleared.add(i);
+      api("POST", `/api/sessions/${sessionId()}/notify/clear`, { note: i })
+        .catch((e) => console.warn("Discord 通知の削除に失敗しました", e));
+    }
+  });
+  if (notifyPaused) return;
+  const due = (plan.notes || []).map((n, i) => ({ ...n, i }))
+    .filter((n) => !noteSent.has(n.i) && n.start <= now && now < Math.min(n.end, n.start + NOTE_SPEAK));
+  if (!due.length) return;
+  for (const n of due) noteSent.add(n.i);
+  api("POST", `/api/sessions/${sessionId()}/notify`, { notes: due.map((n) => n.i) })
+    .catch((e) => console.warn("Discord 通知に失敗しました", e));
+}
+
 // 出撃 N 秒前になった戦闘をサーバー経由で Discord に読み上げさせ、出撃したらそのメッセージを消させる。
 // 出撃時刻は討伐待ちを無視した最も早い見込み (at) で判断するので、前のボスが倒れていなくても呼びかける。
 // その時点で NOTIFY_GROUP 秒以内に続けて出撃する人は 1 通にまとめる。
@@ -426,6 +474,7 @@ function notifyUpcoming(sched, now) {
         .catch((e) => console.warn("Discord 通知の削除に失敗しました", e));
     }
   }
+  notifyNotes(now);
   if (notifyPaused) return;
   const pending = sched.filter((s) => s.state === "upcoming" && !notifySent.has(s.x.id));
   if (!pending.some((s) => s.at - now <= plan.notify_lead)) return;
