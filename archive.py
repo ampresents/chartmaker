@@ -1,12 +1,14 @@
 # 画像生成した作戦 txt の保存先
 # 環境変数 PLAN_BUCKET に Cloud Storage のバケット名を設定したときだけ保存する (ローカルでは保存しない)。
 # ファイル名は plans/YYYYMMDD_連番_Maxスコア_Estスコア.txt。日付は日本時間、連番は日ごとに 001 から振る。
+# 進行管理のセッションに使った作戦は sessions/YYYYMMDD_連番_Maxスコア_Estスコア_セッションID.txt。
 import datetime
 import os
 import threading
 
 JST = datetime.timezone(datetime.timedelta(hours=9))  # 日本は夏時間が無いので固定でよい
-PREFIX = "plans/"
+PREFIX = "plans/"            # 画像生成した作戦
+SESSION_PREFIX = "sessions/"  # 進行管理のセッションに使った作戦
 
 
 class GcsPlanArchive:
@@ -17,8 +19,8 @@ class GcsPlanArchive:
         self._exists = PreconditionFailed
         self._lock = threading.Lock()
 
-    def _next_seq(self, day):
-        head = PREFIX + day + "_"
+    def _next_seq(self, prefix, day):
+        head = prefix + day + "_"
         seqs = [0]
         for blob in self._bucket.list_blobs(prefix=head):
             seq = blob.name[len(head):].split("_")[0]
@@ -26,13 +28,13 @@ class GcsPlanArchive:
                 seqs.append(int(seq))
         return max(seqs) + 1
 
-    def save(self, text, max_score, est_score):
+    def save(self, text, max_score, est_score, prefix=PREFIX, tag=""):
         day = datetime.datetime.now(JST).strftime("%Y%m%d")
         # 連番は同じプロセス内ではロックで重ならない。if_generation_match=0 で既存のファイルは上書きしない
         with self._lock:
-            seq = self._next_seq(day)
+            seq = self._next_seq(prefix, day)
             for _ in range(10):
-                name = "{}{}_{:03d}_{}_{}.txt".format(PREFIX, day, seq, max_score, est_score)
+                name = "{}{}_{:03d}_{}_{}{}.txt".format(prefix, day, seq, max_score, est_score, "_" + tag if tag else "")
                 try:
                     self._bucket.blob(name).upload_from_string(
                         text.encode("utf-8"), content_type="text/plain; charset=utf-8", if_generation_match=0)

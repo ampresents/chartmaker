@@ -139,6 +139,36 @@ def test_chart_cache_lru():
     assert c.get("b") is None and c.get("a") == b"1" and c.get("c") == b"3"
 
 
+class FakeArchive:
+    def __init__(self, fail=False):
+        self.saved = []
+        self.fail = fail
+
+    def save(self, text, max_score, est_score, **kw):
+        if self.fail:
+            raise RuntimeError("down")
+        self.saved.append((text, max_score, est_score, kw))
+        return "x.txt"
+
+
+def test_session_archive(client, monkeypatch):
+    archive = FakeArchive()
+    monkeypatch.setattr(app_module, "plan_archive", archive)
+    sid = create_session(client)
+    [(text, max_score, est_score, kw)] = archive.saved
+    assert text == PLAN and kw == {"prefix": "sessions/", "tag": sid}
+    assert max_score >= est_score > 0
+
+    # 画像生成の保存先は今までどおり plans/
+    client.post("/api/render", json={"text": PLAN})
+    assert archive.saved[1][3] == {}
+
+
+def test_session_archive_failure(client, monkeypatch):
+    monkeypatch.setattr(app_module, "plan_archive", FakeArchive(fail=True))
+    create_session(client)  # 保存に失敗してもセッションは作れる
+
+
 def test_session_create_errors(client):
     r = client.post("/api/sessions", json={"text": PLAN})
     assert r.status_code == 400

@@ -29,6 +29,7 @@ generate_chart("./src/<name>.txt", "./output/<name>.png", json.load(open("config
 
 - `test_chartlib.py`: `parse`, `calc_level` (floor rules, timelag/cooldown, the push-at-0 quirk), the score formula, `format_clock`, and `layout_time_labels`.
 - `test_app.py`: the Flask API through the test client, including the tracker's kill/undo rules (409s) and the Discord notify/clear/pause/discard flow (`send_discord` and `delete_discord` are monkeypatched, so nothing reaches Discord). It imports `app` with `STORE` and `PLAN_BUCKET` unset, so it uses `MemoryStore` and saves nothing.
+- `test_archive.py`: the Cloud Storage file names and the per-prefix daily sequence, against a fake bucket.
 - `test_store.py`: version bumps, the 24h expiry (never extended), `CachedStore` reuse, and `delete`.
 - `test_chart_image.py` renders `tests/fixtures/plan_full.txt` (all display flags, short and long battles, rates < 1, 11 floors) and `plan_plain.txt` (no flags, `display_remaining`), and compares them with `tests/golden/*.png` pixel for pixel. On a mismatch, it writes the actual image and a copy with the differing pixels painted red to pytest's tmp dir. After an intended drawing change, check the images by eye, then run with `UPDATE_GOLDEN=1` to rewrite the goldens. Run this test before bumping Pillow or OpenCV.
 - The fixtures use fictional players. Never put real plans from `src/` (real player names) into `tests/`.
@@ -82,6 +83,7 @@ py -3.11 -m venv .venv
 It replaces the old in-game app that read `cleartime.json` and `detail.json`. Operators press a kill button for each boss, and every device showing the same URL stays in sync.
 
 - The editor's 進行管理 ("progress management") button hands the current `toText()` to `/tracker` through `localStorage` (`chartmaker.tracker.text`). The setup screen reads the date and `::start_time`, then calls `POST /api/sessions {text, start_epoch_ms}` and navigates to `/tracker/<id>`. The random 128-bit id is the only access control.
+- When `PLAN_BUCKET` is set, `POST /api/sessions` also saves the txt as `sessions/YYYYMMDD_<seq>_<Max>_<Est>_<session id>.txt` (same `archive_plan`, with `prefix=SESSION_PREFIX, tag=sid`; the sequence is counted per prefix). The id is in the name on purpose, to match the file with `deploy/list_sessions.py`; the bucket is private. A failed save is only logged and the session is still created.
 - The server builds the plan once: `cleartime` comes from `calc_level` (index = floor; index 0 is the sentinel; trailing empty floors are trimmed), and `detail` is a trimmed `generate_detail`. Boss images that don't exist locally are dropped, because `validate(..., check_images=False)` skips the image check.
 - Endpoints:
   - `GET /api/sessions/<id>?since=<version>` returns only `{version, server_now}` when nothing has changed. Clients poll every second and use `server_now` to correct their clock.
