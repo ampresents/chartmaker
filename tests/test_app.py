@@ -413,3 +413,71 @@ def test_notify_send_failure_is_ignored(client, monkeypatch):
     monkeypatch.setattr(app_module, "send_discord", fail)
     sid = create_notify_session(client)
     assert notify(client, sid, 0).status_code == 200
+
+
+# ---------------------------------------------------------------- 注意点
+
+NOTED = PLAN.replace("Alpha01,0,2nd_boss,60\n", "Alpha01,0,2nd_boss,60\n#lock\n#note 2 体目は同時に\n").replace(
+    "Beta01,3500,Realm_boss,170", "#note@600-900 回復を温存\nBeta01,3500,Realm_boss,170\n#note 最後")
+
+
+def test_parse_notes():
+    battles, ranges = app_module.parse_notes(NOTED)
+    assert battles == {1: "2 体目は同時に", 4: "最後"}
+    assert ranges == [{"start": 600, "end": 900, "text": "回復を温存"}]
+    # 行動行より前の #note は付ける戦闘がないので無視する
+    assert app_module.parse_notes("#note 先頭\n" + PLAN) == ({}, [])
+    # プレイヤーが交互に並んでも txt の行の順で数える
+    assert app_module.parse_notes("A01,0,1st_boss,9\nB01,0,1st_boss,9\n#note b\n")[0] == {1: "b"}
+
+
+@pytest.mark.parametrize("line", ["#note@900-600 x", "#note@0-3601 x", "#note@0-10 ", "#note@0-10 " + "x" * 201])
+def test_parse_notes_errors(client, line):
+    with pytest.raises(app_module.InputError):
+        app_module.parse_notes(PLAN + "\n" + line)
+    r = client.post("/api/sessions", json={"text": PLAN + "\n" + line, "start_epoch_ms": 0})
+    assert r.status_code == 400
+
+
+def create_noted_session(client):
+    r = client.post("/api/sessions", json={"text": NOTED, "start_epoch_ms": 0, "discord_webhook": WEBHOOK})
+    assert r.status_code == 200
+    return r.json["id"]
+
+
+def test_session_notes(client):
+    plan = client.get("/api/sessions/" + create_noted_session(client)).json["plan"]
+    assert plan["detail"][1]["note"] == "2 体目は同時に"
+    assert "note" not in plan["detail"][0]
+    assert plan["notes"] == [{"start": 600, "end": 900, "text": "回復を温存"}]
+
+
+def test_notify_appends_battle_note(client, sent):
+    sid = create_noted_session(client)
+    notify(client, sid, 1, 4)
+    assert sent[0][1]["content"] == "Alpha01、Beta01、準備して下さい。Alpha01: 2 体目は同時に。Beta01: 最後"
+
+
+def notify_note(client, sid, *notes):
+    return client.post("/api/sessions/{}/notify".format(sid), json={"notes": list(notes)})
+
+
+def test_notify_range_note(client, sent, deleted):
+    sid = create_noted_session(client)
+    r = notify_note(client, sid, 0)
+    assert r.status_code == 200 and r.json["notes"] == [0] and r.json["sent"] == []
+    assert notify_note(client, sid, 0).json["notes"] == []  # 別の端末からの同じ通知
+    assert [p["content"] for _, p in sent] == ["注意: 回復を温存"]
+    assert notify_note(client, sid, 1).status_code == 400
+    assert notify_note(client, sid, "0").status_code == 400
+    r = client.post("/api/sessions/{}/notify/clear".format(sid), json={"note": 0})
+    assert r.json["cleared"] == 1 and deleted == [(WEBHOOK, "m1")]
+
+
+def test_notify_range_note_pause(client, sent):
+    sid = create_noted_session(client)
+    client.post("/api/sessions/{}/notify/pause".format(sid), json={"paused": True})
+    assert notify_note(client, sid, 0).json["notes"] == []
+    client.post("/api/sessions/{}/notify/pause".format(sid), json={"paused": False})
+    assert notify_note(client, sid, 0).json["notes"] == [0]
+    assert len(sent) == 1

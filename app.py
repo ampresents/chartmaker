@@ -276,6 +276,44 @@ def handle_conflict(e):
     return jsonify(error=str(e)), 409
 
 
+CHART_SEC = 3600  # 作戦の長さ (秒)
+NOTE_MAX = 200  # 注意点 1 件の文字数の上限
+MAX_NOTES = 50  # 全体の注意点の件数の上限
+NOTE_MARK = "#note "  # 直前の行動行に付く注意点
+RANGE_NOTE = re.compile(r"#note@(\d+)-(\d+)(?: (.*))?")  # 作戦の経過秒の範囲に付く注意点
+
+
+def parse_notes(text):
+    """txt の注意点のコメント行を読む。戦闘の注意点は {detail の添字: 本文}、全体の注意点は [{start, end, text}]。
+    行動行の判定は ChartLib.parse と同じなので、添字は generate_detail の順と一致する"""
+    battle_notes = {}
+    ranges = []
+    count = 0
+    for no, line in enumerate(text.splitlines(), 1):
+        if line.startswith("#"):
+            m = RANGE_NOTE.fullmatch(line.rstrip())
+            if m:
+                start, end, body = int(m[1]), int(m[2]), (m[3] or "").strip()
+                if not 0 <= start < end <= CHART_SEC:
+                    raise InputError("[line:{}] 注意点の時刻の範囲が正しくありません".format(no))
+                ranges.append({"start": start, "end": end, "text": check_note(body, no)})
+            elif line.startswith(NOTE_MARK) and count:
+                battle_notes[count - 1] = check_note(line[len(NOTE_MARK):].strip(), no)
+            continue
+        if line.startswith("::") or len(line.split(",")) <= 1:
+            continue
+        count += 1
+    if len(ranges) > MAX_NOTES:
+        raise InputError("全体の注意点は {} 件までです".format(MAX_NOTES))
+    return battle_notes, ranges
+
+
+def check_note(body, no):
+    if not body or len(body) > NOTE_MAX:
+        raise InputError("[line:{}] 注意点は 1〜{} 文字で書いてください".format(no, NOTE_MAX))
+    return body
+
+
 @app.post("/api/sessions")
 @rate_limit("session", LIMIT_SESSION)
 def api_session_create():
@@ -296,6 +334,9 @@ def api_session_create():
     keep = ("push_start", "battle_start", "battle_end", "action", "raw_name", "player_name", "team", "est_score", "level")
     full_detail = generate_detail(commands, setting)
     detail = [{k: d[k] for k in keep} for d in full_detail]
+    battle_notes, range_notes = parse_notes(text)
+    for i, note in battle_notes.items():
+        detail[i]["note"] = note
 
     icon_bg = setting.get("icon_bgcolor")
     bosses = {}
@@ -313,12 +354,13 @@ def api_session_create():
         "team_color": config["team"]["team_color"],
         "cleartime": clear_time,
         "detail": detail,
+        "notes": range_notes,
     }
     discord = discord_setting(request.get_json(silent=True) or {})
     plan["notify_lead"] = discord["lead"] if discord else None
     plan["notify_tts"] = discord["tts"] if discord else None
     # Webhook URL と作戦テキスト (作戦画像用) は plan の外に置き、GET で返さない
-    sid = store.create({"plan": plan, "events": [], "discord": discord, "notified": [], "text": text})
+    sid = store.create({"plan": plan, "events": [], "discord": discord, "notified": [], "notes_notified": [], "text": text})
     archive_plan(text, full_detail, prefix=SESSION_PREFIX, tag=sid)
     return jsonify(id=sid)
 
@@ -481,59 +523,89 @@ def api_session_undo(sid):
 @rate_limit("kill", LIMIT_KILL)
 def api_session_notify(sid):
     """出撃が近い戦闘をまとめて Discord のメッセージ (既定は TTS) で知らせる。複数の端末から来ても 1 戦 1 回だけ送る"""
-    battles = (request.get_json(silent=True) or {}).get("battles")
-    if (not isinstance(battles, list) or not 0 < len(battles) <= MAX_NOTIFY_BATTLES
-            or not all(isinstance(b, int) and not isinstance(b, bool) for b in battles)):
+    body = request.get_json(silent=True) or {}
+    battles = body.get("battles", [])
+    notes = body.get("notes", [])
+    if (not index_list(battles, MAX_NOTIFY_BATTLES) or not index_list(notes, MAX_NOTES)
+            or not battles and not notes):
         raise InputError("不正な指定です")
     battles = list(dict.fromkeys(battles))
+    notes = list(dict.fromkeys(notes))
     result = {}
 
     def apply(doc):
         if not doc.get("discord"):
             raise Conflict("Discord 通知は設定されていません")
-        if not all(0 <= b < len(doc["plan"]["detail"]) for b in battles):
+        if (not all(0 <= b < len(doc["plan"]["detail"]) for b in battles)
+                or not all(0 <= n < len(doc["plan"].get("notes", [])) for n in notes)):
             raise InputError("不正な指定です")
         # Firestore のトランザクションは再実行されることがあるので、毎回決め直す
         if doc.get("notify_paused"):
-            result["sent"] = []  # 止めている間は送らず、通知済みにもしない
+            result["sent"] = result["notes"] = []  # 止めている間は送らず、通知済みにもしない
             return doc
         result["sent"] = [b for b in battles if b not in doc["notified"]]
         doc["notified"].extend(result["sent"])
+        done = doc.setdefault("notes_notified", [])  # 注意点の前に作ったセッションには無い
+        result["notes"] = [n for n in notes if n not in done]
+        done.extend(result["notes"])
         return doc
 
     doc = store.update(sid, apply)
     sent = result["sent"]
     if sent:
         names = []
+        cautions = []
         for b in sent:
             d = doc["plan"]["detail"][b]
             name = d["player_name"] or d["raw_name"]
             if name not in names:
                 names.append(name)
-        payload = {
-            "content": "{}、準備して下さい".format("、".join(names)),
-            "tts": doc["discord"].get("tts", True),  # tts を持たない古いセッションは読み上げる
-            "allowed_mentions": {"parse": []},  # 名前に @everyone などがあっても通知しない
-        }
-        try:
-            message_id = send_discord(doc["discord"]["webhook"], payload)
-        except Exception as e:
-            print("Discord への通知に失敗しました:", repr(e))
-            message_id = None
-        if message_id:
-            # 出撃したら消すので、送ったメッセージを戦闘ごとに覚えておく (まとめた戦闘は同じ ID)
-            def remember(doc):
-                messages = doc.setdefault("messages", {})
-                for b in sent:
-                    messages[str(b)] = {"id": str(message_id), "at": time.time()}
-                return doc
-            try:
-                doc = store.update(sid, remember)
-            except NotFound:
-                # 送っている間にセッションが破棄された。消す機会がもう無いので、すぐ消す
-                delete_discord_quietly(doc["discord"]["webhook"], message_id)
-                raise
-    return jsonify(version=doc["version"], sent=sent, server_now=now_ms())
+            if d.get("note"):
+                cautions.append("{}: {}".format(name, d["note"]))
+        content = "{}、準備して下さい".format("、".join(names))
+        if cautions:
+            content += "。" + "。".join(cautions)
+        doc = send_and_remember(sid, doc, content, [str(b) for b in sent])
+    for n in result["notes"]:
+        doc = send_and_remember(sid, doc, "注意: " + doc["plan"]["notes"][n]["text"], ["n{}".format(n)])
+    return jsonify(version=doc["version"], sent=sent, notes=result["notes"], server_now=now_ms())
+
+
+def index_list(v, limit):
+    return (isinstance(v, list) and len(v) <= limit
+            and all(isinstance(b, int) and not isinstance(b, bool) for b in v))
+
+
+DISCORD_CONTENT_MAX = 2000
+
+
+def send_and_remember(sid, doc, content, keys):
+    """Discord へ 1 通送り、あとで消せるよう messages[key] にメッセージ ID を覚える。送れなければ何もしない"""
+    payload = {
+        "content": content[:DISCORD_CONTENT_MAX],
+        "tts": doc["discord"].get("tts", True),  # tts を持たない古いセッションは読み上げる
+        "allowed_mentions": {"parse": []},  # 名前に @everyone などがあっても通知しない
+    }
+    try:
+        message_id = send_discord(doc["discord"]["webhook"], payload)
+    except Exception as e:
+        print("Discord への通知に失敗しました:", repr(e))
+        return doc
+    if not message_id:
+        return doc
+
+    # 出撃したら消すので、送ったメッセージを戦闘ごとに覚えておく (まとめた戦闘は同じ ID)
+    def remember(doc):
+        messages = doc.setdefault("messages", {})
+        for k in keys:
+            messages[k] = {"id": str(message_id), "at": time.time()}
+        return doc
+    try:
+        return store.update(sid, remember)
+    except NotFound:
+        # 送っている間にセッションが破棄された。消す機会がもう無いので、すぐ消す
+        delete_discord_quietly(doc["discord"]["webhook"], message_id)
+        raise
 
 
 @app.post("/api/sessions/<sid>/notify/pause")
@@ -561,15 +633,21 @@ MESSAGE_KEEP = NOTIFY_LEAD[1] + 60
 @app.post("/api/sessions/<sid>/notify/clear")
 @rate_limit("kill", LIMIT_KILL)
 def api_session_notify_clear(sid):
-    """出撃した戦闘の通知メッセージを Discord から消す。複数の端末から来ても 1 回だけ消す"""
-    battle = (request.get_json(silent=True) or {}).get("battle")
-    if not isinstance(battle, int) or isinstance(battle, bool):
+    """出撃した戦闘 (battle) か始まった全体の注意点 (note) の通知メッセージを Discord から消す。
+    複数の端末から来ても 1 回だけ消す"""
+    body = request.get_json(silent=True) or {}
+    key = None
+    for name, prefix in (("battle", ""), ("note", "n")):
+        v = body.get(name)
+        if isinstance(v, int) and not isinstance(v, bool):
+            key = prefix + str(v)
+    if key is None:
         raise InputError("不正な指定です")
 
     def targets(doc):
         old = time.time() - MESSAGE_KEEP
         messages = doc.get("messages") or {}
-        mine = messages.get(str(battle), {}).get("id")
+        mine = messages.get(key, {}).get("id")
         # まとめて送った通知は、そのうち 1 戦が出撃した時点で消す
         return [k for k, m in messages.items() if m["id"] == mine or m["at"] < old]
 
