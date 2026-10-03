@@ -9,7 +9,7 @@ import tempfile
 import threading
 import time
 import urllib.request
-from collections import deque
+from collections import OrderedDict, deque
 
 from flask import Flask, jsonify, request, send_from_directory
 
@@ -22,11 +22,12 @@ MAX_TEXT = 200_000
 
 # 公開時の料金対策。IP ごとの回数制限 (回数, 秒) と、画像生成の同時実行数
 LIMIT_EDIT = (300, 60)        # /api/parse, /api/detail (エディタは編集のたびに呼ぶ)
-LIMIT_RENDER = (20, 60)       # /api/render
+LIMIT_RENDER = (20, 60)       # /api/render と、進行管理の作戦画像を新しく描くとき
 LIMIT_SESSION = (20, 3600)    # POST /api/sessions
 LIMIT_KILL = (120, 60)        # 討伐・取り消し
 RENDER_SLOTS = 2              # 画像生成 1 回で数百 MB 使うので同時に動かす数を絞る
 RENDER_WAIT = 20              # 空きを待つ秒数。過ぎたら 503
+CHART_CACHE = 8               # 進行管理の作戦画像をプロセス内に何セッション分とっておくか
 
 # 画面右上に出す支援 (寄付) ページの URL。https 以外や未設定なら出さない
 SUPPORT_URL = os.environ.get("SUPPORT_URL", "").strip()
@@ -277,7 +278,7 @@ def handle_conflict(e):
 @app.post("/api/sessions")
 @rate_limit("session", LIMIT_SESSION)
 def api_session_create():
-    _, commands, constants = parse_request()
+    text, commands, constants = parse_request()
     config = load_config()
     # 進行管理では画像が無くても表示できるので確認しない
     setting = validate(commands, constants, config, check_images=False)
@@ -314,8 +315,8 @@ def api_session_create():
     discord = discord_setting(request.get_json(silent=True) or {})
     plan["notify_lead"] = discord["lead"] if discord else None
     plan["notify_tts"] = discord["tts"] if discord else None
-    # Webhook URL は plan の外に置き、GET で返さない
-    sid = store.create({"plan": plan, "events": [], "discord": discord, "notified": []})
+    # Webhook URL と作戦テキスト (作戦画像用) は plan の外に置き、GET で返さない
+    sid = store.create({"plan": plan, "events": [], "discord": discord, "notified": [], "text": text})
     return jsonify(id=sid)
 
 
@@ -372,6 +373,57 @@ def api_session_get(sid):
         return jsonify(version=doc["version"], server_now=now_ms())
     return jsonify(version=doc["version"], plan=doc["plan"], events=doc["events"],
                    notify_paused=bool(doc.get("notify_paused")), server_now=now_ms())
+
+
+class ChartCache:
+    """進行管理の作戦画像。作戦は途中で変わらないので、セッションごとに 1 回だけ描いて使い回す"""
+
+    def __init__(self, size):
+        self.size = size
+        self._items = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get(self, sid):
+        with self._lock:
+            png = self._items.get(sid)
+            if png is not None:
+                self._items.move_to_end(sid)
+            return png
+
+    def put(self, sid, png):
+        with self._lock:
+            self._items[sid] = png
+            self._items.move_to_end(sid)
+            while len(self._items) > self.size:
+                self._items.popitem(last=False)
+
+    def drop(self, sid):
+        with self._lock:
+            self._items.pop(sid, None)
+
+
+chart_cache = ChartCache(CHART_CACHE)
+
+
+@app.get("/api/sessions/<sid>/chart.png")
+def api_session_chart(sid):
+    doc = store.get(sid)  # 期限切れ・破棄済みなら 404
+    png = chart_cache.get(sid)
+    if png is None:
+        if not doc.get("text"):
+            raise NotFound(sid)  # 作戦テキストを保存する前に作ったセッション
+        if not limiter.allow((client_ip(), "render"), *LIMIT_RENDER):
+            raise TooMany()
+        if not render_slots.acquire(timeout=RENDER_WAIT):
+            raise Busy()
+        try:
+            png = render_png(doc["text"], load_config())
+        finally:
+            render_slots.release()
+        chart_cache.put(sid, png)
+    r = app.response_class(png, mimetype="image/png")
+    r.headers["Cache-Control"] = "private, max-age=86400, immutable"
+    return r
 
 
 def current_floor(events):
@@ -538,6 +590,7 @@ def api_session_notify_clear(sid):
 def api_session_delete(sid):
     """セッションを破棄する。全端末の進行管理が終わり、Discord 通知も以後は送られない"""
     doc = store.delete(sid)
+    chart_cache.drop(sid)
     # まだ消していない通知メッセージも消す
     ids = list(dict.fromkeys(m["id"] for m in (doc.get("messages") or {}).values()))
     for message_id in ids:

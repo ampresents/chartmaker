@@ -103,6 +103,42 @@ def test_session_plan(client):
     assert client.get("/api/sessions/{}?since=1".format(sid)).json.keys() == {"version", "server_now"}
 
 
+def test_session_chart(client, monkeypatch):
+    monkeypatch.setattr(app_module, "chart_cache", app_module.ChartCache(8))
+    sid = create_session(client)
+    assert "text" not in client.get("/api/sessions/" + sid).json  # 作戦テキストはポーリングで返さない
+    r = client.get("/api/sessions/{}/chart.png".format(sid))
+    assert r.status_code == 200 and r.mimetype == "image/png"
+    assert r.data[1:4] == b"PNG" and "immutable" in r.headers["Cache-Control"]
+
+    # 2 回目は描き直さない
+    def fail(*_):
+        raise AssertionError("re-rendered")
+    monkeypatch.setattr(app_module, "render_png", fail)
+    assert client.get("/api/sessions/{}/chart.png".format(sid)).data == r.data
+
+    # 破棄したら 404
+    client.delete("/api/sessions/" + sid)
+    assert client.get("/api/sessions/{}/chart.png".format(sid)).status_code == 404
+
+
+def test_session_chart_without_text(client, monkeypatch):
+    monkeypatch.setattr(app_module, "chart_cache", app_module.ChartCache(8))
+    sid = create_session(client)
+    app_module.store.update(sid, lambda doc: {k: v for k, v in doc.items() if k != "text"})
+    assert client.get("/api/sessions/{}/chart.png".format(sid)).status_code == 404
+    assert client.get("/api/sessions/xxxx/chart.png").status_code == 404
+
+
+def test_chart_cache_lru():
+    c = app_module.ChartCache(2)
+    c.put("a", b"1")
+    c.put("b", b"2")
+    c.get("a")
+    c.put("c", b"3")
+    assert c.get("b") is None and c.get("a") == b"1" and c.get("c") == b"3"
+
+
 def test_session_create_errors(client):
     r = client.post("/api/sessions", json={"text": PLAN})
     assert r.status_code == 400
