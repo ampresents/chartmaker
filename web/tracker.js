@@ -474,14 +474,8 @@ function buildTimers() {
   $("#fix-close").addEventListener("click", () => dlg.close());
   dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
   dlg.addEventListener("close", () => { fixPlayer = null; });
-  $("#fix-go").addEventListener("click", fixGo);
+  $("#fix-ready").addEventListener("click", fixReady);
   dlg.querySelectorAll("[data-d]").forEach((b) => b.addEventListener("click", () => fixNudge(Number(b.dataset.d))));
-  $("#fix-set").addEventListener("click", fixSet);
-  $("#fix-time").addEventListener("keydown", (e) => { if (e.key === "Enter") fixSet(); });
-  $("#fix-reset").addEventListener("click", () => {
-    const st = playerStatus(schedule(elapsed()), fixPlayer).started;
-    if (st) setStart(st, null);
-  });
 }
 
 // 再出撃までのカウントダウン。クールタイムが明けたら「出撃可能」(次の相手がまだ開いていなければその理由も出す)
@@ -516,59 +510,37 @@ function renderTimers(sched, now) {
 
 function openFix(name) {
   fixPlayer = name;
-  $("#fix-time").value = "";
   renderFix(schedule(elapsed()), elapsed());
   $("#fix-dialog").showModal();
 }
 
-// 補正ダイアログ。「今 出撃した」は挑戦中ならその戦闘、なければ次の戦闘の出撃を今にする。
-// ±秒と時刻の入力は、直近の出撃 (挑戦中を含む) の時刻を直す
+// 補正ダイアログ。どちらも直近の出撃 (挑戦中を含む) の時刻を動かし、カードのカウントダウンを直す
 function renderFix(sched, now) {
-  const { started, fighting, next } = playerStatus(sched, fixPlayer);
-  const go = fighting || next;
+  const { started } = playerStatus(sched, fixPlayer);
   const x = plan.byPlayer.find((b) => b[0].raw_name === fixPlayer)[0];
+  const left = started ? Math.ceil(readyAt(started) - now) : 0;
   setText($("#fix-name"), x.player_name);
-  $("#fix-go").hidden = !go;
-  if (go) setText($("#fix-go"), go === fighting
-    ? `今 出撃した（挑戦中の ${BOSS_LABEL[go.x.action]} の出撃を ${mmss(now)} にする）`
-    : `今 ${BOSS_LABEL[go.x.action]} に出撃した（${mmss(now)}）`);
-  setText($("#fix-last"), started
-    ? `直近の出撃: ${BOSS_LABEL[started.x.action]}　${mmss(started.at)}（作戦 ${mmss(started.x.push_start)}）`
-      + (started.fixed ? "　✎ 補正済み" : "　推定")
-      + (readyAt(started) > now ? `　出撃可能まで あと ${mmss(Math.ceil(readyAt(started) - now))}` : "　出撃可能")
-    : "まだ出撃していません");
-  for (const el of $("#fix-dialog").querySelectorAll("[data-d], #fix-set, #fix-time")) el.disabled = busy || !started;
-  $("#fix-go").disabled = busy;
-  $("#fix-reset").disabled = busy || !started?.fixed;
+  setText($("#fix-left"), !started ? "まだ出撃していません" : left > 0 ? `出撃可能まで あと ${mmss(left)}` : "出撃可能");
+  for (const el of $("#fix-dialog").querySelectorAll("[data-d]")) el.disabled = busy || !started;
+  $("#fix-ready").disabled = busy || !started || left <= 0;
 }
-
-function setStart(s, t) {
-  return act("start", { battle: s.x.id, t: t === null ? null : Math.max(0, Math.round(t)) });
-}
-
-function fixGo() {
-  const { fighting, next } = playerStatus(schedule(elapsed()), fixPlayer);
-  const go = fighting || next;
-  if (go) setStart(go, elapsed());
-}
-
-function fixNudge(d) {
-  const st = playerStatus(schedule(elapsed()), fixPlayer).started;
-  if (st) setStart(st, st.at + d);
-}
-
-// 経過時間を「分:秒」(または秒だけ) で入力して、直近の出撃を直す
-// 出撃可能までの残り (4:30 または 270) から直近の出撃時刻を逆算する。カードの残りがこの値になる
-function fixSet() {
+// 出撃可能までの残りを left 秒にする。カードは ceil(readyAt - now) を出すので、
+// 整数の出撃時刻 t = floor(now + left - クールタイム) なら表示がちょうど left になる
+function setLeft(left) {
   const now = elapsed();
   const st = playerStatus(schedule(now), fixPlayer).started;
   if (!st) return;
-  const cool = readyAt(st) - st.at;
-  const m = $("#fix-time").value.trim().match(/^(?:(\d+):)?(\d+)$/);
-  const left = m ? Number(m[1] || 0) * 60 + Number(m[2]) : NaN;
-  if (!(left <= cool)) { showStatus(`出撃可能までの残りは 4:30 や 270 のように 0〜${mmss(cool)} で入力してください`); return; }
-  setStart(st, now + left - cool);
-  $("#fix-time").value = "";
+  const t = Math.max(0, Math.floor(now + Math.max(0, left) - (readyAt(st) - st.at)));
+  if (t !== st.at) act("start", { battle: st.x.id, t });
+}
+// 出撃可能にする: クールタイムが今ちょうど明けるよう、直近の出撃を前にずらす
+function fixReady() { setLeft(0); }
+// 表示中のカウントダウンを d 秒増減する。出撃可能から + すると今から数え直す
+function fixNudge(d) {
+  const now = elapsed();
+  const st = playerStatus(schedule(now), fixPlayer).started;
+  const left = st ? Math.max(0, Math.ceil(readyAt(st) - now)) : 0;
+  if (st && left + d > 0 || left > 0) setLeft(left + d);
 }
 
 function rowNote(x) {
