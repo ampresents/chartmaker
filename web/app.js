@@ -76,8 +76,19 @@ function blockLen(st = state) { return timelag(st) + COOL_TIME; }
 
 // ---------------------------------------------------------------- 状態
 
+function blankImage() {
+  return IMAGES.includes("/image/blank.png") ? "/image/blank.png" : IMAGES[0] || "";
+}
+
+// サーバーにないボス画像（別の環境で作った作戦や、削除された画像）は blank.png に置き換える
+function fixImages(constants) {
+  for (const key of Object.values(IMAGE_KEYS)) {
+    if (!IMAGES.includes(constants[key])) constants[key] = blankImage();
+  }
+}
+
 function defaultState() {
-  const blank = IMAGES.includes("/image/blank.png") ? "/image/blank.png" : IMAGES[0] || "";
+  const blank = blankImage();
   return {
     constants: {
       comment: CONFIG.comment,
@@ -116,6 +127,7 @@ function stateFromParsed(commands, constants) {
   for (const [k, v] of Object.entries(constants)) {
     if (KNOWN_KEYS.has(k) && !(k in FLAGS)) st.constants[k] = v ?? "";
   }
+  fixImages(st.constants);
   const len = blockLen(st);
   const byId = {};
   const clock = {};
@@ -359,6 +371,7 @@ function load() {
       if (Number.isInteger(d.snapMargin)) snapMargin = d.snapMargin;
       fillPlayers(d.state.players);
       if (!Array.isArray(d.state.notes)) d.state.notes = [];
+      if (d.state.constants) fixImages(d.state.constants);
       return d.state;
     }
   } catch (e) { /* 壊れた下書きは無視 */ }
