@@ -111,10 +111,11 @@ body.late .toolbar { box-shadow: inset 0 -3px var(--late); }
 .fix-go { width: 100%; padding: 12px; font-size: 16px; font-weight: bold; }
 .fix-go[hidden] { display: none; }
 .fix-info { margin: 10px 0; font-size: 22px; font-weight: bold; text-align: center; font-variant-numeric: tabular-nums; }
-.fix-nudge button { flex: 1; }
+.fix-nudge { gap: 4px; }
+.fix-nudge button { flex: 1; min-width: 0; padding-inline: 4px; }
 
 .next { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
-.next-row { display: grid; grid-template-columns: 80px 1fr auto auto; gap: 8px; align-items: center; }
+.next-row { display: grid; grid-template-columns: 80px 1fr auto auto auto; gap: 8px; align-items: center; }
 .next-row .in { font-variant-numeric: tabular-nums; color: var(--fg); }
 .next-row .in.waiting { color: var(--late); font-weight: bold; }
 

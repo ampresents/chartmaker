@@ -217,11 +217,13 @@ def test_session_start(client):
     r = client.post(url, json={"battle": 1, "t": None})  # 補正を戻す
     assert r.status_code == 200 and r.json["starts"] == {}
     assert client.post(url, json={"battle": 1, "t": None}).status_code == 200  # 無くても良い
+    # 開始直後に「出撃可能にする」と出撃時刻は負になる
+    assert client.post(url, json={"battle": 1, "t": -200}).json["starts"] == {"1": -200}
 
 
 @pytest.mark.parametrize("body", [
     {"battle": 99, "t": 10}, {"battle": -1, "t": 10}, {"battle": "1", "t": 10}, {"battle": True, "t": 10},
-    {"battle": 0, "t": -1}, {"battle": 0, "t": 7201}, {"battle": 0, "t": 1.5}, {"battle": 0},
+    {"battle": 0, "t": -3601}, {"battle": 0, "t": 7201}, {"battle": 0, "t": 1.5}, {"battle": 0},
 ])
 def test_session_start_errors(client, body):
     sid = create_session(client)

@@ -519,7 +519,9 @@ def api_session_undo(sid):
     return jsonify(version=doc["version"], events=doc["events"], server_now=now_ms())
 
 
-START_RANGE = (0, 7200)  # 出撃時刻の補正に使える経過秒 (作戦の 60 分を超えた進行も直せるよう広めに)
+# 出撃時刻の補正に使える経過秒。開始直後に「出撃可能にする」と出撃が 0 秒より前になるので負も許し、
+# 作戦の 60 分を超えた進行も直せるよう広めにとる
+START_RANGE = (-3600, 7200)
 
 @app.post("/api/sessions/<sid>/start")
 @rate_limit("kill", LIMIT_KILL)

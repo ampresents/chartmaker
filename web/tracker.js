@@ -5,7 +5,6 @@
 const REGULAR = BOSSES.slice(0, 3);
 const POLL_MS = 1000;
 const TICK_MS = 200;
-const NEXT_COUNT = 8;
 // 作戦画像 (ChartLib の固定レイアウト): 列の左端 120 + i*246、幅 240、y = 秒 + 160
 const CHART_X0 = 120, CHART_COL = 246, CHART_COL_W = 240, CHART_TOP = 160;
 const HANDOFF_KEY = "chartmaker.tracker.text";
@@ -179,7 +178,8 @@ function schedule(now) {
       if (fixed) { at = starts[x.id]; known = true; wait = null; }
       const kt = killTime(x.level, x.action);
       let state;
-      if (known && at <= now) state = kt === null ? "fighting" : kt < at ? "skip" : "done";
+      // 補正した戦闘は出撃したと明示されているので、討伐がそれより前でもスキップにしない
+      if (known && at <= now) state = kt === null ? "fighting" : kt < at && !fixed ? "skip" : "done";
       else if (kt !== null) state = "skip";
       else state = at <= now ? "waiting" : "upcoming";
       const s = { x, at, known, wait, fixed, state };
@@ -280,16 +280,22 @@ function renderChart(sched, fighting, upcoming, now) {
   line.style.top = `${(Math.floor(now) + CHART_TOP) / img.naturalHeight * 100}%`;
 }
 
-// 次に出撃: プレイヤーごとに次の 1 戦だけ。待機中を先に、あとは出撃の早い順
+// 進行の段階: 階層ごとに 1st/2nd/3rd が 2n、Realm が 2n+1 (n = 階層 − 1)
+const stageOf = (level, boss) => (level - 1) * 2 + (boss === "Realm_boss" ? 1 : 0);
+function currentStage() {
+  const floor = 1 + events.filter((e) => e.boss === "Realm_boss").length;
+  return stageOf(floor, REGULAR.every((b) => killTime(floor, b) !== null) ? "Realm_boss" : REGULAR[0]);
+}
+
+// 次に出撃: 今の段階から次の次の段階まで (1st/2nd/3rd なら同じ階層の Realm と次の階層の 1st/2nd/3rd、
+// Realm なら次の階層の 1st/2nd/3rd と Realm) の出撃前の戦闘。待機中を先に、あとは出撃の早い順
 function nextBattles(sched) {
-  const seen = new Set();
+  const cur = currentStage();
   return sched.filter((s) => {
     if (s.state !== "waiting" && s.state !== "upcoming") return false;
-    if (seen.has(s.x.raw_name)) return false;
-    seen.add(s.x.raw_name);
-    return !sched.some((o) => o.state === "fighting" && o.x.raw_name === s.x.raw_name);
-  }).sort((a, b) => (a.state === "waiting" ? 0 : 1) - (b.state === "waiting" ? 0 : 1) || a.at - b.at || a.x.push_start - b.x.push_start)
-    .slice(0, NEXT_COUNT);
+    const st = stageOf(s.x.level, s.x.action);
+    return st >= cur && st <= cur + 2;
+  }).sort((a, b) => (a.state === "waiting" ? 0 : 1) - (b.state === "waiting" ? 0 : 1) || a.at - b.at || a.x.push_start - b.x.push_start);
 }
 
 function renderNotify() {
@@ -407,7 +413,7 @@ function render() {
   setChildren($("#next"), upcoming.map((s) => s.x.id).join(), () =>
     upcoming.length
       ? upcoming.map((s) => h("div", { class: "next-row" },
-        h("span", { class: "in" }), playerTag(s.x, false), bossTag(s.x.action),
+        h("span", { class: "in" }), playerTag(s.x, false), h("span", { class: "muted" }, `LV${s.x.level}`), bossTag(s.x.action),
         h("span", { class: "muted", title: "作戦の出撃時刻" }, mmss(s.x.push_start)), rowNote(s.x)))
       : [h("div", { class: "empty" }, "なし")]);
   $("#next").querySelectorAll(".in").forEach((el, i) => {
@@ -474,7 +480,7 @@ function buildTimers() {
   $("#fix-close").addEventListener("click", () => dlg.close());
   dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
   dlg.addEventListener("close", () => { fixPlayer = null; });
-  $("#fix-ready").addEventListener("click", fixReady);
+  $("#fix-ready").addEventListener("click", () => { fixReady(); dlg.close(); });
   dlg.querySelectorAll("[data-d]").forEach((b) => b.addEventListener("click", () => fixNudge(Number(b.dataset.d))));
 }
 
@@ -484,10 +490,15 @@ function renderTimers(sched, now) {
     const { started, fighting, next } = playerStatus(sched, name);
     const left = started ? Math.ceil(readyAt(started) - now) : 0;
     let state, count, sub;
-    if (fighting) {
+    if (fighting && left > 0) {
       state = "t-fighting";
       count = `挑戦中 ${BOSS_LABEL[fighting.x.action]}`;
       sub = `再出撃まで ${mmss(Math.max(0, left))}`;
+    } else if (fighting) {
+      // 討伐ボタンが押されていなくても、クールタイムが明けていれば出撃可能
+      state = "t-ready";
+      count = "出撃可能";
+      sub = `挑戦中 ${BOSS_LABEL[fighting.x.action]} (討伐待ち)`;
     } else if (!next) {
       state = left > 0 ? "t-cool t-end" : "t-end";
       count = left > 0 ? mmss(left) : "作戦終了";
@@ -516,31 +527,36 @@ function openFix(name) {
 
 // 補正ダイアログ。どちらも直近の出撃 (挑戦中を含む) の時刻を動かし、カードのカウントダウンを直す
 function renderFix(sched, now) {
-  const { started } = playerStatus(sched, fixPlayer);
+  const { started, next } = playerStatus(sched, fixPlayer);
   const x = plan.byPlayer.find((b) => b[0].raw_name === fixPlayer)[0];
   const left = started ? Math.ceil(readyAt(started) - now) : 0;
   setText($("#fix-name"), x.player_name);
-  setText($("#fix-left"), !started ? "まだ出撃していません" : left > 0 ? `出撃可能まで あと ${mmss(left)}` : "出撃可能");
-  for (const el of $("#fix-dialog").querySelectorAll("[data-d]")) el.disabled = busy || !started;
-  $("#fix-ready").disabled = busy || !started || left <= 0;
+  setText($("#fix-left"), left > 0 ? `出撃可能まで あと ${mmss(left)}` : "出撃可能");
+  for (const el of $("#fix-dialog").querySelectorAll("[data-d]")) el.disabled = busy || !(started || next);
+  $("#fix-ready").disabled = busy || left <= 0;
 }
-// 出撃可能までの残りを left 秒にする。カードは ceil(readyAt - now) を出すので、
-// 整数の出撃時刻 t = floor(now + left - クールタイム) なら表示がちょうど left になる
+// 補正する戦闘: 直近の出撃 (挑戦中を含む)。まだ 1 度も出撃していなければ次の戦闘を今出撃したことにする
+function fixTarget(now) {
+  const { started, next } = playerStatus(schedule(now), fixPlayer);
+  return started || next;
+}
 function setLeft(left) {
   const now = elapsed();
-  const st = playerStatus(schedule(now), fixPlayer).started;
+  const st = fixTarget(now);
   if (!st) return;
-  const t = Math.max(0, Math.floor(now + Math.max(0, left) - (readyAt(st) - st.at)));
-  if (t !== st.at) act("start", { battle: st.x.id, t });
+  // 出撃した直後 (残り = クールタイム) より前には戻せない。出撃が未来になると挑戦中から外れるため
+  const cool = readyAt(st) - st.at;
+  // 開始から 5 分以内は t が負になる (サーバーは START_RANGE で受け付ける)
+  const t = Math.floor(now + Math.min(Math.max(0, left), cool) - cool);
+  if (t !== st.at || !st.fixed) act("start", { battle: st.x.id, t });
 }
-// 出撃可能にする: クールタイムが今ちょうど明けるよう、直近の出撃を前にずらす
 function fixReady() { setLeft(0); }
 // 表示中のカウントダウンを d 秒増減する。出撃可能から + すると今から数え直す
 function fixNudge(d) {
   const now = elapsed();
-  const st = playerStatus(schedule(now), fixPlayer).started;
-  const left = st ? Math.max(0, Math.ceil(readyAt(st) - now)) : 0;
-  if (st && left + d > 0 || left > 0) setLeft(left + d);
+  const { started } = playerStatus(schedule(now), fixPlayer);
+  const left = started ? Math.max(0, Math.ceil(readyAt(started) - now)) : 0;
+  if (left + d > 0 || left > 0) setLeft(left + d);
 }
 
 function rowNote(x) {
