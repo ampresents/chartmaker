@@ -74,6 +74,15 @@
     </div>
   </section>
 
+  <section class="timers-box">
+    <div class="row">
+      <h3>出撃タイマー</h3>
+      <span class="grow"></span>
+      <span class="muted">再出撃までの残り（出撃 + 5 分 + 1 秒）。実際とずれたらカードを押して補正</span>
+    </div>
+    <div id="timers" class="timers"></div>
+  </section>
+
   <section class="history-box">
     <div class="row">
       <h3>討伐履歴</h3>
@@ -96,6 +105,31 @@
     </div>
   </section>
 </main>
+
+<dialog id="fix-dialog" class="fix-dialog">
+  <div class="row">
+    <b id="fix-name" class="fix-name"></b>
+    <span class="grow"></span>
+    <button id="fix-close" type="button">閉じる</button>
+  </div>
+  <button id="fix-go" class="primary fix-go" type="button"></button>
+  <div id="fix-last" class="fix-info"></div>
+  <div class="row fix-nudge">
+    <button type="button" data-d="-10">-10秒</button>
+    <button type="button" data-d="-5">-5秒</button>
+    <button type="button" data-d="-1">-1秒</button>
+    <button type="button" data-d="1">+1秒</button>
+    <button type="button" data-d="5">+5秒</button>
+    <button type="button" data-d="10">+10秒</button>
+  </div>
+  <div class="row">
+    <label>出撃時刻（経過） <input id="fix-time" placeholder="12:34" size="6" autocomplete="off"></label>
+    <button id="fix-set" type="button">設定</button>
+    <span class="grow"></span>
+    <button id="fix-reset" type="button" class="danger">補正を戻す</button>
+  </div>
+  <p class="hint">補正は全端末で共有され、このプレイヤーの後の出撃の見込みにも反映されます。</p>
+</dialog>
 
 <script src="/static/common.js"></script>
 <script src="/static/tracker.js"></script>

@@ -28,6 +28,9 @@ const notifyCleared = new Set(); // そのうち、出撃したので通知の�
 const noteSent = new Set();     // この端末から Discord 通知を頼んだ全体の注意点 (plan.notes の添字)
 const noteCleared = new Set();  // そのうち、始まったので通知の削除を頼んだもの
 const NOTE_LEAD = 30;           // 通知なしのセッションで、注意点を何秒前から出すか
+const RESORTIE_MARGIN = 1;      // クールタイム明けから実際に再出撃できるまでの秒 (操作の時間)
+let starts = {};                // 手で補正した実際の出撃秒 { plan.detail の添字: 秒 } (サーバーに保存し全端末で共有)
+let fixPlayer = null;           // 補正ダイアログで開いているプレイヤー (raw_name)
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -125,20 +128,33 @@ function delay(now, pr) {
 
 const killTime = (floor, boss) => events.find((e) => e.floor === floor && e.boss === boss)?.t ?? null;
 
-// (階層, ボス) に挑戦できるようになった秒。まだなら null
-function bossOpenAt(floor, boss) {
+// (階層, ボス) に挑戦できるようになった秒 (actual、まだなら null) と作戦上の秒 (planned、作戦の範囲外なら null)
+function bossGate(floor, boss) {
   const open = floor === 1 ? 0 : killTime(floor - 1, "Realm_boss");
-  if (open === null || boss !== "Realm_boss") return open;
+  const plannedOpen = floor === 1 ? 0 : planned(floor - 1, "Realm_boss");
+  if (boss !== "Realm_boss") return { actual: open, planned: plannedOpen, reason: `LV${floor} 開放待ち` };
+  if (open === null) return { actual: null, planned: null, reason: `LV${floor} 開放待ち` };
   const regular = REGULAR.map((b) => killTime(floor, b));
-  return regular.includes(null) ? null : Math.max(open, ...regular);
+  const plannedRegular = REGULAR.map((b) => planned(floor, b));
+  return {
+    actual: regular.includes(null) ? null : Math.max(open, ...regular),
+    planned: plannedOpen === null || plannedRegular.includes(null) ? null : Math.max(plannedOpen, ...plannedRegular),
+    reason: "3体討伐待ち",
+  };
 }
 
+// 出撃 s のあと、次に出撃できる秒 (クールタイム明け + 操作の 1 秒)
+const readyAt = (s) => s.at + (s.x.battle_start - s.x.push_start) + COOL_TIME + RESORTIE_MARGIN;
+
 // 討伐記録から各戦闘の実際の出撃を見積もる。出撃は次の条件がすべてそろった時点:
-//   作戦の出撃時刻 / 前の戦闘の出撃からクールタイム明け / 前の戦闘のボスが討伐済み / 挑戦先のボスに挑戦可能
+//   作戦の出撃時刻 / 前の戦闘の出撃からクールタイム明け (readyAt) / 前の戦闘のボスが討伐済み / 挑戦先のボスに挑戦可能
+// 作戦は討伐から余裕を置いて出撃するように作られているので、討伐 (開放) が作戦より遅れたら、その余裕を保って
+// 出撃も同じ秒数だけ遅らせる (作戦が 1:00 討伐・1:06 出撃で、討伐が 1:02 なら出撃は 1:08)。早まっても作戦より早めない。
+// 手で補正した出撃 (starts) があればそれを実際の出撃とし、後の戦闘にも持ち越す。
 // 戦闘は対象ボスの討伐ボタンが押されるまで続く (作戦の終了時刻では終わらない)。
 // state: "done" 討伐済み, "skip" 出撃前に対象が討伐された, "fighting" 挑戦中,
 //        "waiting" 作戦の出撃時刻を過ぎたが出撃できない, "upcoming" 出撃前
-// at: 出撃した秒、または出撃できる最も早い秒 (waiting では未確定)
+// at: 出撃した秒、または出撃できる最も早い秒 (waiting では未確定)。wait: 未確定の理由。fixed: 手で補正した
 function schedule(now) {
   const out = [];
   for (const battles of plan.byPlayer) {
@@ -146,19 +162,27 @@ function schedule(now) {
     for (const x of battles) {
       let at = x.push_start;
       let known = true;
-      const gate = (t) => { if (t === null) known = false; else at = Math.max(at, t); };
+      let wait = null;
+      const gate = (actual, plannedAt, reason) => {
+        if (actual === null) { if (known) wait = reason; known = false; return; }
+        at = Math.max(at, plannedAt === null ? actual : actual + Math.max(0, x.push_start - plannedAt));
+      };
       if (prev) {
-        at = Math.max(at, prev.at + (prev.x.battle_start - prev.x.push_start) + COOL_TIME);
-        if (!prev.known) known = false;
-        gate(killTime(prev.x.level, prev.x.action));
+        at = Math.max(at, readyAt(prev));
+        if (!prev.known) { known = false; wait = prev.wait; }
+        gate(killTime(prev.x.level, prev.x.action), planned(prev.x.level, prev.x.action),
+          `${BOSS_LABEL[prev.x.action]} 討伐待ち`);
       }
-      gate(bossOpenAt(x.level, x.action));
+      const g = bossGate(x.level, x.action);
+      gate(g.actual, g.planned, g.reason);
+      const fixed = String(x.id) in starts;
+      if (fixed) { at = starts[x.id]; known = true; wait = null; }
       const kt = killTime(x.level, x.action);
       let state;
       if (known && at <= now) state = kt === null ? "fighting" : kt < at ? "skip" : "done";
       else if (kt !== null) state = "skip";
       else state = at <= now ? "waiting" : "upcoming";
-      const s = { x, at, known, state };
+      const s = { x, at, known, wait, fixed, state };
       out.push(s);
       if (state !== "skip") prev = s;
     }
@@ -198,6 +222,7 @@ function buildBoard() {
     ui.bosses[b] = { card, count, sub, btn };
     return card;
   }));
+  buildTimers();
   buildChart();
   $("#board").hidden = false;
   $("#btn-share").hidden = false;
@@ -392,6 +417,7 @@ function render() {
   });
 
   renderNotes(sched, now);
+  renderTimers(sched, now);
   renderChart(sched, fighting, upcoming, now);
   notifyUpcoming(sched, now);
 
@@ -413,6 +439,129 @@ function render() {
   const stale = Date.now() - lastSync > 5000;
   setText($("#sync"), stale ? "サーバーと同期できていません" : "同期中");
   $("#sync").classList.toggle("late-text", stale);
+}
+
+// ---------------------------------------------------------------- 出撃タイマー
+
+// プレイヤーの出撃の状況。started: 直近に出撃した戦闘 (挑戦中を含む)、fighting: 挑戦中、next: 次の戦闘
+function playerStatus(sched, name) {
+  const mine = sched.filter((s) => s.x.raw_name === name);
+  const started = mine.filter((s) => s.state === "fighting" || s.state === "done");
+  return {
+    started: started[started.length - 1] || null,
+    fighting: mine.find((s) => s.state === "fighting") || null,
+    next: mine.find((s) => s.state === "waiting" || s.state === "upcoming") || null,
+  };
+}
+
+// 作戦画像と同じ列順に、プレイヤーごとのカードを作り置きする。押すと補正ダイアログを開く
+function buildTimers() {
+  ui.timers = new Map();
+  $("#timers").replaceChildren(...plan.byPlayer.map((battles) => {
+    const x = battles[0];
+    const count = h("div", { class: "timer-count" });
+    const bar = h("div", { class: "timer-bar" });
+    const sub = h("div", { class: "timer-sub" });
+    const mark = h("span", { class: "timer-mark", title: "出撃時刻を手で補正しています" }, "✎");
+    const card = h("button", { class: "timer", type: "button", onclick: () => openFix(x.raw_name) },
+      h("div", { class: "timer-head" }, playerTag(x, false), mark), count,
+      h("div", { class: "timer-track" }, bar), sub);
+    ui.timers.set(x.raw_name, { card, count, bar, sub, mark });
+    return card;
+  }));
+  const dlg = $("#fix-dialog");
+  $("#fix-close").addEventListener("click", () => dlg.close());
+  dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
+  dlg.addEventListener("close", () => { fixPlayer = null; });
+  $("#fix-go").addEventListener("click", fixGo);
+  dlg.querySelectorAll("[data-d]").forEach((b) => b.addEventListener("click", () => fixNudge(Number(b.dataset.d))));
+  $("#fix-set").addEventListener("click", fixSet);
+  $("#fix-time").addEventListener("keydown", (e) => { if (e.key === "Enter") fixSet(); });
+  $("#fix-reset").addEventListener("click", () => {
+    const st = playerStatus(schedule(elapsed()), fixPlayer).started;
+    if (st) setStart(st, null);
+  });
+}
+
+// 再出撃までのカウントダウン。クールタイムが明けたら「出撃可能」(次の相手がまだ開いていなければその理由も出す)
+function renderTimers(sched, now) {
+  for (const [name, u] of ui.timers) {
+    const { started, fighting, next } = playerStatus(sched, name);
+    const left = started ? Math.ceil(readyAt(started) - now) : 0;
+    let state, count, sub;
+    if (fighting) {
+      state = "t-fighting";
+      count = `挑戦中 ${BOSS_LABEL[fighting.x.action]}`;
+      sub = `再出撃まで ${mmss(Math.max(0, left))}`;
+    } else if (!next) {
+      state = left > 0 ? "t-cool t-end" : "t-end";
+      count = left > 0 ? mmss(left) : "作戦終了";
+      sub = "作戦の出撃はもうありません";
+    } else {
+      state = left > 0 ? "t-cool" : "t-ready";
+      count = left > 0 ? mmss(left) : "出撃可能";
+      sub = `次 ${BOSS_LABEL[next.x.action]}　` + (next.known ? `見込み ${mmss(next.at)}` : next.wait || "待機中");
+    }
+    u.card.className = `timer ${state}`;
+    u.card.style.setProperty("--boss", fighting ? bgr(plan.bosses[fighting.x.action].color) : "");
+    setText(u.count, count);
+    setText(u.sub, sub);
+    const span = COOL_TIME + RESORTIE_MARGIN;
+    u.bar.style.width = `${left > 0 ? Math.max(0, Math.min(100, (1 - left / span) * 100)) : 100}%`;
+    u.mark.hidden = !(started?.fixed || next?.fixed);
+  }
+  if (fixPlayer) renderFix(sched, now);
+}
+
+function openFix(name) {
+  fixPlayer = name;
+  $("#fix-time").value = "";
+  renderFix(schedule(elapsed()), elapsed());
+  $("#fix-dialog").showModal();
+}
+
+// 補正ダイアログ。「今 出撃した」は挑戦中ならその戦闘、なければ次の戦闘の出撃を今にする。
+// ±秒と時刻の入力は、直近の出撃 (挑戦中を含む) の時刻を直す
+function renderFix(sched, now) {
+  const { started, fighting, next } = playerStatus(sched, fixPlayer);
+  const go = fighting || next;
+  const x = plan.byPlayer.find((b) => b[0].raw_name === fixPlayer)[0];
+  setText($("#fix-name"), x.player_name);
+  $("#fix-go").hidden = !go;
+  if (go) setText($("#fix-go"), go === fighting
+    ? `今 出撃した（挑戦中の ${BOSS_LABEL[go.x.action]} の出撃を ${mmss(now)} にする）`
+    : `今 ${BOSS_LABEL[go.x.action]} に出撃した（${mmss(now)}）`);
+  setText($("#fix-last"), started
+    ? `直近の出撃: ${BOSS_LABEL[started.x.action]}　${mmss(started.at)}（作戦 ${mmss(started.x.push_start)}）`
+      + (started.fixed ? "　✎ 補正済み" : "　推定")
+    : "まだ出撃していません");
+  for (const el of $("#fix-dialog").querySelectorAll("[data-d], #fix-set, #fix-time")) el.disabled = busy || !started;
+  $("#fix-go").disabled = busy;
+  $("#fix-reset").disabled = busy || !started?.fixed;
+}
+
+function setStart(s, t) {
+  return act("start", { battle: s.x.id, t: t === null ? null : Math.max(0, Math.round(t)) });
+}
+
+function fixGo() {
+  const { fighting, next } = playerStatus(schedule(elapsed()), fixPlayer);
+  const go = fighting || next;
+  if (go) setStart(go, elapsed());
+}
+
+function fixNudge(d) {
+  const st = playerStatus(schedule(elapsed()), fixPlayer).started;
+  if (st) setStart(st, st.at + d);
+}
+
+// 経過時間を「分:秒」(または秒だけ) で入力して、直近の出撃を直す
+function fixSet() {
+  const st = playerStatus(schedule(elapsed()), fixPlayer).started;
+  const m = $("#fix-time").value.trim().match(/^(?:(\d+):)?(\d+)$/);
+  if (!st || !m) { showStatus("出撃時刻は 12:34 のように経過時間で入力してください"); return; }
+  setStart(st, Number(m[1] || 0) * 60 + Number(m[2]));
+  $("#fix-time").value = "";
 }
 
 function rowNote(x) {
@@ -492,6 +641,7 @@ function applyResponse(j) {
   version = j.version;
   if (j.plan && !plan) { plan = j.plan; buildBoard(); }
   if (j.events) events = j.events;
+  if (j.starts) starts = j.starts;
   if ("notify_paused" in j) notifyPaused = j.notify_paused;
   lastSync = Date.now();
 }

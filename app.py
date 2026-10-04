@@ -416,7 +416,7 @@ def api_session_get(sid):
     since = request.args.get("since", type=int)
     if since == doc["version"]:
         return jsonify(version=doc["version"], server_now=now_ms())
-    return jsonify(version=doc["version"], plan=doc["plan"], events=doc["events"],
+    return jsonify(version=doc["version"], plan=doc["plan"], events=doc["events"], starts=doc.get("starts") or {},
                    notify_paused=bool(doc.get("notify_paused")), server_now=now_ms())
 
 
@@ -517,6 +517,33 @@ def api_session_undo(sid):
 
     doc = store.update(sid, apply)
     return jsonify(version=doc["version"], events=doc["events"], server_now=now_ms())
+
+
+START_RANGE = (0, 7200)  # 出撃時刻の補正に使える経過秒 (作戦の 60 分を超えた進行も直せるよう広めに)
+
+@app.post("/api/sessions/<sid>/start")
+@rate_limit("kill", LIMIT_KILL)
+def api_session_start(sid):
+    """作戦と実際のずれを直すため、戦闘 (plan.detail の添字) の実際の出撃秒を記録する。t が null なら補正を消す"""
+    body = request.get_json(silent=True) or {}
+    battle, t = body.get("battle"), body.get("t")
+    if not isinstance(battle, int) or isinstance(battle, bool):
+        raise InputError("不正な指定です")
+    if t is not None and (not isinstance(t, int) or isinstance(t, bool) or not START_RANGE[0] <= t <= START_RANGE[1]):
+        raise InputError("出撃時刻が範囲外です")
+
+    def apply(doc):
+        if not 0 <= battle < len(doc["plan"]["detail"]):
+            raise InputError("不正な指定です")
+        starts = doc.setdefault("starts", {})  # 古いセッションには無い
+        if t is None:
+            starts.pop(str(battle), None)
+        else:
+            starts[str(battle)] = t
+        return doc
+
+    doc = store.update(sid, apply)
+    return jsonify(version=doc["version"], starts=doc["starts"], server_now=now_ms())
 
 
 @app.post("/api/sessions/<sid>/notify")

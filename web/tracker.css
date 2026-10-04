@@ -80,6 +80,39 @@ body.late .toolbar { box-shadow: inset 0 -3px var(--late); }
 .fight { flex-wrap: wrap; }
 .row-note { flex-basis: 100%; grid-column: 1 / -1; color: #ff9be4; font-size: 13px; overflow-wrap: anywhere; }
 
+/* 出撃タイマー: プレイヤーごとのカード。クールタイム中は残り、明けたら緑の「出撃可能」 */
+.timers-box { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+.timers-box .row { margin-bottom: 8px; }
+.timers-box h3 { margin: 0; font-size: 14px; color: var(--accent); }
+.timers { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.timer { display: flex; flex-direction: column; gap: 4px; align-items: stretch; text-align: left; padding: 8px 10px;
+  background: var(--panel2); border: 2px solid var(--line); border-radius: 6px; color: var(--fg); cursor: pointer;
+  font: inherit; min-width: 0; }
+.timer-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.timer-head .player { flex: 1; min-width: 0; }
+.timer-mark { color: #ffd84a; font-weight: bold; }
+.timer-mark[hidden] { display: none; }
+.timer-count { font-size: 28px; font-weight: bold; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.timer-track { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.timer-bar { height: 100%; background: var(--accent); }
+.timer-sub { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.timer.t-ready { border-color: var(--ok); background: var(--ok-bg); }
+.timer.t-ready .timer-count { color: var(--ok); }
+.timer.t-ready .timer-bar { background: var(--ok); }
+.timer.t-fighting { border-color: var(--boss); }
+.timer.t-fighting .timer-count { color: var(--boss); font-size: 20px; }
+.timer.t-end { opacity: .5; }
+
+.fix-dialog { background: var(--panel); color: var(--fg); border: 1px solid var(--accent); border-radius: 8px;
+  padding: 14px 16px; width: min(480px, calc(100vw - 32px)); box-sizing: border-box; }
+.fix-dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+.fix-dialog .row { margin: 8px 0; flex-wrap: wrap; }
+.fix-name { font-size: 18px; }
+.fix-go { width: 100%; padding: 12px; font-size: 16px; font-weight: bold; }
+.fix-go[hidden] { display: none; }
+.fix-info { margin-top: 10px; font-variant-numeric: tabular-nums; }
+.fix-nudge button { flex: 1; }
+
 .next { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .next-row { display: grid; grid-template-columns: 80px 1fr auto auto; gap: 8px; align-items: center; }
 .next-row .in { font-variant-numeric: tabular-nums; color: var(--fg); }

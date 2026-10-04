@@ -206,6 +206,30 @@ def test_session_undo(client):
     assert [e["boss"] for e in r.json["events"]] == ["1st_boss"]
 
 
+def test_session_start(client):
+    sid = create_session(client)
+    url = "/api/sessions/{}/start".format(sid)
+    assert client.get("/api/sessions/" + sid).json["starts"] == {}
+    r = client.post(url, json={"battle": 1, "t": 312})
+    assert r.status_code == 200 and r.json["starts"] == {"1": 312}
+    assert client.post(url, json={"battle": 1, "t": 315}).json["starts"] == {"1": 315}  # 上書き
+    assert client.get("/api/sessions/" + sid).json["starts"] == {"1": 315}
+    r = client.post(url, json={"battle": 1, "t": None})  # 補正を戻す
+    assert r.status_code == 200 and r.json["starts"] == {}
+    assert client.post(url, json={"battle": 1, "t": None}).status_code == 200  # 無くても良い
+
+
+@pytest.mark.parametrize("body", [
+    {"battle": 99, "t": 10}, {"battle": -1, "t": 10}, {"battle": "1", "t": 10}, {"battle": True, "t": 10},
+    {"battle": 0, "t": -1}, {"battle": 0, "t": 7201}, {"battle": 0, "t": 1.5}, {"battle": 0},
+])
+def test_session_start_errors(client, body):
+    sid = create_session(client)
+    if "t" not in body:
+        body = dict(body, t="x")
+    assert client.post("/api/sessions/{}/start".format(sid), json=body).status_code == 400
+
+
 def test_session_not_found(client):
     assert client.get("/api/sessions/nope").status_code == 404
     assert kill(client, "nope", 1, "1st_boss").status_code == 404
