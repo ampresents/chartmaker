@@ -245,7 +245,8 @@ function buildChart() {
 }
 
 // 作戦画像の上に重ねる矩形。位置は画像に対する % なので、縮小しても合う
-function chartHit(x, cls) {
+// 終わった戦闘はクールタイム明け (cool_off = battle_start + 300) まで、それ以外は戦闘の終わりまで
+function chartHit(x, cls, end = x.battle_end) {
   const img = $("#chart-img");
   const W = img.naturalWidth, H = img.naturalHeight;
   const col = plan.column.get(x.raw_name);
@@ -253,7 +254,7 @@ function chartHit(x, cls) {
     left: `${(CHART_X0 + col * CHART_COL) / W * 100}%`,
     width: `${CHART_COL_W / W * 100}%`,
     top: `${(x.push_start + CHART_TOP) / H * 100}%`,
-    height: `${Math.max(x.battle_end - x.push_start, 1) / H * 100}%`,
+    height: `${Math.max(end - x.push_start, 1) / H * 100}%`,
   } });
 }
 
@@ -268,7 +269,7 @@ function renderChart(sched, fighting, upcoming, now) {
     upcoming.map((s) => s.x.id).join(),
   ].join("|");
   setChildren($("#chart-overlay"), key, () => [
-    ...done.map((s) => chartHit(s.x, "done")),
+    ...done.map((s) => chartHit(s.x, "done", s.x.battle_start + COOL_TIME)),
     ...upcoming.map((s) => chartHit(s.x, "next")),
     ...fighting.map((s) => chartHit(s.x, overdue(s) ? "fighting late" : "fighting")),
     ui.chartNow,
