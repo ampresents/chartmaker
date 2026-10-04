@@ -1244,7 +1244,7 @@ function bindUI() {
   bindSplitter();
 
   document.addEventListener("keydown", (e) => {
-    if (e.target.closest("input, textarea, select, #splitter, #picker")) return;
+    if (e.target.closest("input, textarea, select, #splitter, #picker, dialog")) return;
     const key = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
     else if ((e.ctrlKey || e.metaKey) && (key === "y" || (key === "z" && e.shiftKey))) { e.preventDefault(); redo(); }

@@ -16,6 +16,8 @@
   <button id="btn-undo" title="元に戻す (Ctrl+Z)">↶ 元に戻す</button>
   <button id="btn-redo" title="やり直す (Ctrl+Y)">↷ やり直す</button>
   <span class="sep"></span>
+  <button id="btn-auto" title="プレイヤーの強さから作戦を自動で作る">自動作成 β</button>
+  <span class="sep"></span>
   <label>倍率
     <select id="zoom">
       <option value="0.15">小</option>
@@ -80,7 +82,50 @@
   </div>
 </div>
 
+<dialog id="auto-dialog" class="auto-dialog">
+  <div class="row">
+    <b class="auto-title">作戦を自動作成</b>
+    <span class="grow"></span>
+    <button id="auto-close" type="button">閉じる</button>
+  </div>
+  <p class="hint">プレイヤーごとに、Realm を担当できる範囲と、どれだけ与えられるか (%) を入れてください。担当できない Realm には出さず、1st / 2nd / 3rd に回します (「Lv20 まで」の人は Lv21 以降は 1st / 2nd / 3rd だけ)。1st / 2nd / 3rd は 30 秒、Lv1–10 の Realm は 1 人で倒す見積もりです。Lv11–20 の Realm は、撃破役の割合の合計が 100% になる組で倒し、ほかの人は稼ぎ役として合流します。表と設定はこのブラウザにだけ保存し、作戦には書き込みません。</p>
+  <div id="auto-count-row" class="row">
+    <label>人数 <input id="auto-count" type="number" min="1" max="20" class="auto-sec"> 人</label>
+    <span class="muted">名前のあるプレイヤーがいないので、仮の名前で作ります。名前は後で列の見出しから変えられます。</span>
+  </div>
+  <div class="auto-table-wrap">
+    <table class="auto-table">
+      <thead><tr><th>プレイヤー</th><th>Realm の担当</th><th>撃破役<small>Lv11–20</small></th><th>稼ぎ役<small>Lv11–20</small></th><th>Lv21 以降<small>約 5 分</small></th></tr></thead>
+      <tbody id="auto-players"></tbody>
+    </table>
+  </div>
+  <div class="row auto-settings">
+    <label>Lv1–10 の Realm (秒) <input id="auto-realm-low" class="auto-low" spellcheck="false"></label>
+  </div>
+  <div class="row auto-settings">
+    <label>撃破役 <input id="auto-kill-sec" type="number" min="1" max="300" class="auto-sec"> 秒</label>
+    <label>稼ぎ役 <input id="auto-grind-sec" type="number" min="1" max="300" class="auto-sec"> 秒</label>
+    <label>Lv21 以降 <input id="auto-top-sec" type="number" min="1" max="300" class="auto-sec"> 秒</label>
+    <label title="撃破から次の出撃まで空ける秒数">余裕 <input id="auto-margin" type="number" min="0" max="60" class="auto-sec"> 秒</label>
+    <label>探索
+      <select id="auto-seconds">
+        <option value="5">5 秒</option>
+        <option value="10">10 秒</option>
+        <option value="30">30 秒</option>
+        <option value="60">60 秒</option>
+      </select>
+    </label>
+  </div>
+  <div class="row">
+    <button id="auto-run" class="primary" type="button">作成</button>
+    <button id="auto-stop" type="button" disabled>中止</button>
+  </div>
+  <div id="auto-log" class="auto-log"></div>
+  <p class="hint">できた作戦は今のブロックをすべて置き換えます (「元に戻す」で戻せます)。ロックと戦闘の注意点は消え、名前・設定・全体の注意点は残ります。</p>
+</dialog>
+
 <script src="/static/common.js"></script>
 <script src="/static/app.js"></script>
+<script src="/static/auto.js"></script>
 </body>
 </html>

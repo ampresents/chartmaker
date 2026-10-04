@@ -154,3 +154,26 @@ body.resizing { cursor: col-resize; user-select: none; }
   display: flex; flex-direction: column; gap: 10px; padding: 12px; min-height: 0; }
 .modal-img { flex: 1; overflow: auto; background: #000; }
 .modal-img img { width: 100%; display: block; }
+
+/* 作戦の自動作成 */
+.auto-dialog { background: var(--panel); color: var(--fg); border: 1px solid var(--accent); border-radius: 8px;
+  padding: 14px 16px; width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 32px); }
+.auto-dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+.auto-dialog[open] { display: flex; flex-direction: column; gap: 8px; }
+.auto-title { font-size: 16px; color: var(--accent); }
+.auto-table-wrap { overflow: auto; min-height: 80px; border: 1px solid var(--line); border-radius: 4px; }
+.auto-table { width: 100%; border-collapse: collapse; }
+.auto-table th { position: sticky; top: 0; background: var(--panel2); font-weight: normal; padding: 4px 8px; text-align: left; }
+.auto-table th small { display: block; color: var(--muted); font-size: 11px; }
+.auto-table td { padding: 2px 8px; border-top: 1px solid var(--line); white-space: nowrap; }
+.auto-table .auto-all td { background: #0c0c0e; }
+.auto-pct { width: 64px; }
+.auto-pct:disabled { opacity: 0.35; }
+.auto-sec { width: 64px; }
+.auto-low { width: 280px; }
+.muted { color: var(--muted); }
+.auto-log { max-height: 120px; overflow: auto; font-size: 12px; color: var(--muted);
+  background: #0c0c0e; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; }
+.auto-log:empty { display: none; }
+.auto-log .err { color: var(--danger); }
+.auto-log .ok { color: var(--fg); font-weight: bold; }
