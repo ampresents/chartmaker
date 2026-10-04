@@ -535,6 +535,7 @@ function renderFix(sched, now) {
   setText($("#fix-last"), started
     ? `直近の出撃: ${BOSS_LABEL[started.x.action]}　${mmss(started.at)}（作戦 ${mmss(started.x.push_start)}）`
       + (started.fixed ? "　✎ 補正済み" : "　推定")
+      + (readyAt(started) > now ? `　出撃可能まで あと ${mmss(Math.ceil(readyAt(started) - now))}` : "　出撃可能")
     : "まだ出撃していません");
   for (const el of $("#fix-dialog").querySelectorAll("[data-d], #fix-set, #fix-time")) el.disabled = busy || !started;
   $("#fix-go").disabled = busy;
@@ -557,11 +558,16 @@ function fixNudge(d) {
 }
 
 // 経過時間を「分:秒」(または秒だけ) で入力して、直近の出撃を直す
+// 出撃可能までの残り (4:30 または 270) から直近の出撃時刻を逆算する。カードの残りがこの値になる
 function fixSet() {
-  const st = playerStatus(schedule(elapsed()), fixPlayer).started;
+  const now = elapsed();
+  const st = playerStatus(schedule(now), fixPlayer).started;
+  if (!st) return;
+  const cool = readyAt(st) - st.at;
   const m = $("#fix-time").value.trim().match(/^(?:(\d+):)?(\d+)$/);
-  if (!st || !m) { showStatus("出撃時刻は 12:34 のように経過時間で入力してください"); return; }
-  setStart(st, Number(m[1] || 0) * 60 + Number(m[2]));
+  const left = m ? Number(m[1] || 0) * 60 + Number(m[2]) : NaN;
+  if (!(left <= cool)) { showStatus(`出撃可能までの残りは 4:30 や 270 のように 0〜${mmss(cool)} で入力してください`); return; }
+  setStart(st, now + left - cool);
   $("#fix-time").value = "";
 }
 
