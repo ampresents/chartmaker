@@ -146,7 +146,104 @@ function autoBuild(cfg, rawPower, p) {
       if (fits(t, sec)) go(i, t, b, sec, rate);
     }
   }
+  autoFill(cfg, power, can, battles);
   return battles;
+}
+
+// 1 クール以上空いている所に、階層の進み (各ボスの撃破時刻) を変えない戦闘を足す。足した分だけ予定スコアが増える。
+// calc_level と同じ数え方で、各階のボスに合流できる出撃時刻の範囲を求め、空きごとに一番点の高い戦闘を入れる
+function autoFill(cfg, power, can, battles) {
+  const { lag, cool, realmLow, grindSec, topSec } = cfg;
+  const end = (b) => b.t + lag + b.sec;
+  // floors[f] = {reg: {boss: 撃破の終了時刻}, realm: {push: 最初の出撃, end: 撃破の終了時刻}}
+  const floors = [{ reg: {}, realm: { push: 0, end: 0 } }];
+  const at = (f) => floors[f] || (floors[f] = { reg: {}, realm: null });
+  let cur = 1;
+  const sorted = battles.slice().sort((x, y) => x.t - y.t || end(x) - end(y) || (x.boss < y.boss ? -1 : x.boss > y.boss ? 1 : 0));
+  for (const b of sorted) {
+    if (b.boss === "Realm_boss") {
+      const f = at(cur);
+      if (AUTO_REG.some((r) => !(r in f.reg))) floors[cur - 1].realm.end = Math.min(floors[cur - 1].realm.end, end(b));
+      else { f.realm = f.realm ? { push: f.realm.push, end: Math.min(f.realm.end, end(b)) } : { push: b.t, end: end(b) }; cur++; }
+    } else if (b.t > floors[cur - 1].realm.end) {
+      const f = at(cur);
+      f.reg[b.boss] = Math.min(f.reg[b.boss] ?? Infinity, end(b));
+    }
+  }
+  const ft = floors.map((f) => f.realm?.end ?? null);
+  while (ft.length && ft[ft.length - 1] === null) ft.pop();
+  const levelAt = (t) => { const f = ft.findIndex((x) => x !== null && t + lag < x); return f < 0 ? ft.length : f; };
+  const lastRealm = (f) => sorted.some((b) => b.boss === "Realm_boss" && b.t > floors[f - 1].realm.end);
+
+  // 戦闘を足せる範囲 [{f, boss, lo, hi}] (出撃は lo 以上 hi 未満)。撃破より先に終わると撃破役が変わるので、終了は撃破以降にする
+  const spans = [];
+  for (let f = 1; f < floors.length; f++) {
+    const fl = floors[f], prev = floors[f - 1].realm;
+    if (!prev) break;
+    for (const r of AUTO_REG) {
+      if (r in fl.reg) spans.push({ f, boss: r, lo: Math.max(prev.end + 1, fl.reg[r] - lag - AUTO_REG_SEC), hi: fl.reg[r] });
+      // 最後の階でまだ倒していないボスは、Realm の出撃がなければ倒しても階層の数え方は変わらない
+      else if (f === cur && !lastRealm(f)) spans.push({ f, boss: r, lo: prev.end + 1, hi: CHART_SEC });
+    }
+    if (fl.realm) spans.push({ f, boss: "Realm_boss", lo: fl.realm.push, hi: fl.realm.end });
+  }
+
+  // i が t に出撃して spans の s に合流する戦闘。できなければ null
+  const make = (i, t, s) => {
+    let sec = AUTO_REG_SEC, rate = 1;
+    if (s.boss === "Realm_boss") {
+      if (!can(i, s.f)) return null;
+      if (s.f <= 10) sec = realmLow[s.f - 1];
+      else [sec, rate] = s.f <= 20 ? [grindSec, power[i][1]] : [topSec, power[i][2]];
+      // 時間切れになる稼ぎ役は、戦える秒数の分だけ与える見積もり
+      const left = CHART_SEC - lag - t;
+      if (left < sec && s.f > 10) { rate *= left / sec; sec = left; }
+      if (t + lag + sec < s.hi) return null;
+    }
+    rate = Math.round(rate * 100) / 100; // 作戦には小数 2 桁で書くので、見積もりも合わせる
+    if (sec < 1 || rate < 0.01 || t + lag + sec > CHART_SEC) return null;
+    return { i, t, boss: s.boss, level: levelAt(t), sec, rate };
+  };
+
+  // b が撃破役でない合流の戦闘なら、その範囲 (後ろへずらしても撃破時刻は変わらない)。
+  // 同じ時刻に倒す人がほかにもいれば、b は撃破役でなくてもよい
+  const inSpan = (b, s) => s.boss === b.boss && s.lo <= b.t && b.t < s.hi && end(b) >= s.hi;
+  const spanOf = (b) => spans.find((s) => inSpan(b, s) && (b.boss !== "Realm_boss" || b.t > s.lo) &&
+    (end(b) > s.hi || battles.some((x) => x !== b && inSpan(x, s) && end(x) === s.hi)));
+
+  for (let i = 0; i < power.length; i++) {
+    for (;;) {
+      const mine = battles.filter((b) => b.i === i).sort((x, y) => x.t - y.t);
+      const memo = new Map(), spanOfMine = (b) => memo.has(b) ? memo.get(b) : memo.set(b, spanOf(b)).get(b);
+      let best = null, bestScore = 0, moved = null;
+      for (let k = 0; k <= mine.length; k++) {
+        const lo = k ? mine[k - 1].t + cool : 1;
+        // 隙間がなく、次の戦闘もずらせないなら入らない
+        if (k < mine.length && lo > mine[k].t - cool && !spanOfMine(mine[k])) continue;
+        for (const s of spans) {
+          const t = Math.max(lo, s.lo);
+          if (t >= s.hi) continue;
+          const b = make(i, t, s);
+          if (!b) continue;
+          let sc = autoScore([b]), mv = [];
+          // 後ろの戦闘が合流なら、それぞれの範囲の中で後ろへずらして隙間を作る (間は 1 クール空ける)
+          for (let j = k, prevT = t; j < mine.length && mine[j].t < prevT + cool; j++) {
+            const s2 = spanOfMine(mine[j]), t2 = prevT + cool;
+            const to = s2 && t2 < s2.hi && make(i, t2, s2);
+            if (!to) { mv = null; break; }
+            sc += autoScore([to]) - autoScore([mine[j]]);
+            mv.push({ from: mine[j], to });
+            prevT = t2;
+          }
+          if (!mv) continue;
+          if (sc > bestScore || (sc === bestScore && best && b.t < best.t)) { best = b; bestScore = sc; moved = mv; }
+        }
+      }
+      if (!best) break;
+      for (const m of moved) battles[battles.indexOf(m.from)] = m.to;
+      battles.push(best);
+    }
+  }
 }
 
 // 担当できない階層帯の強さを 0 にする (Lv11–20 は tier 2 から、Lv21 以降は tier 3 だけ)
