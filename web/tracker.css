@@ -128,6 +128,12 @@ body.late .toolbar { box-shadow: inset 0 -3px var(--late); }
 .chart-scroll { overflow: auto; max-height: 80vh; cursor: zoom-in; border-radius: 4px; }
 .chart-scroll.full { cursor: zoom-out; }
 .chart-wrap { position: relative; }
+/* チームと名前の帯: 同じ画像の上端だけを見せ、スクロール枠の上に貼り付ける (Excel の先頭行の固定) */
+.chart-head { position: sticky; top: 0; z-index: 1; overflow: hidden; height: 0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.6); }
+.chart-head img { display: block; width: 100%; height: auto; }
+.chart-scroll.full .chart-head { width: max-content; }
+.chart-scroll.full .chart-head img { width: auto; }
 .chart-scroll.full .chart-wrap { width: max-content; }
 .chart-wrap img { display: block; width: 100%; height: auto; }
 .chart-scroll.full .chart-wrap img { width: auto; }

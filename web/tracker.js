@@ -7,6 +7,8 @@ const POLL_MS = 1000;
 const TICK_MS = 200;
 // 作戦画像 (ChartLib の固定レイアウト): 列の左端 120 + i*246、幅 240、y = 秒 + 160
 const CHART_X0 = 120, CHART_COL = 246, CHART_COL_W = 240, CHART_TOP = 160;
+// 固定する帯の高さ。パーティの丸 (〜130) までを含め、60:00 の目盛り (148〜) は含めない
+const CHART_HEAD = 140;
 const HANDOFF_KEY = "chartmaker.tracker.text";
 const WEBHOOK_KEY = "chartmaker.tracker.webhook";
 const TTS_KEY = "chartmaker.tracker.tts"; // "0" なら読み上げなし
@@ -240,6 +242,15 @@ function buildChart() {
   img.addEventListener("load", () => { $("#chart-box").hidden = false; render(); }, { once: true });
   img.addEventListener("error", () => { $("#chart-box").hidden = true; }, { once: true });
   img.src = `/api/sessions/${sessionId()}/chart.png`;
+  // チームと名前の帯 (画像の上端から CHART_HEAD まで) を同じ画像で重ね、縦スクロールしても上に固定する。
+  // 帯の高さぶん本体を上にずらして、スクロールしていないときは本体とぴったり重なるようにする
+  $("#chart-head-img").src = img.src;
+  new ResizeObserver(() => {
+    if (!img.naturalHeight) return;
+    const head = `${img.offsetHeight * CHART_HEAD / img.naturalHeight}px`;
+    $("#chart-head").style.height = head;
+    $(".chart-wrap").style.marginTop = `-${head}`;
+  }).observe(img);
   // クリックで、横幅に合わせた縮小表示と原寸 (横スクロール) を切り替える
   $("#chart-scroll").addEventListener("click", () => $("#chart-scroll").classList.toggle("full"));
 }
