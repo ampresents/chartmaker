@@ -12,3 +12,4 @@ README.md
 CLAUDE.md
 tests/
 requirements-dev.txt
+.claude/

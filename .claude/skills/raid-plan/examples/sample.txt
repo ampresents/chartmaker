@@ -1,0 +1,23 @@
+# 架空のプレイヤー 4 人の小さな例。simulate.py の動作確認用
+::timelag=0
+::1st_boss=blue
+::2nd_boss=red
+::3rd_boss=green
+::Realm_boss=yellow
+::display_party
+::Alpha01=アリス
+::Alpha02=ボブ
+::Bravo01=キャロル
+::Bravo02=デイブ
+Alpha01,1,1st_boss,30
+Alpha01,0,Realm_boss,60
+Alpha01,0,1st_boss,30
+Alpha02,1,2nd_boss,30
+Alpha02,0,2nd_boss,30
+Alpha02,0,Realm_boss,120
+Bravo01,1,3rd_boss,30
+Bravo01,0,3rd_boss,30
+Bravo01,0,3rd_boss,30
+Bravo02,40,Realm_boss,60
+Bravo02,0,1st_boss,30
+Bravo02,600,Realm_boss,280,0.5
