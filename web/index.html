@@ -17,6 +17,7 @@
   <button id="btn-redo" title="やり直す (Ctrl+Y)">↷ やり直す</button>
   <span class="sep"></span>
   <button id="btn-auto" title="プレイヤーの強さから作戦を自動で作る">自動作成 β</button>
+  <button id="btn-stats" title="層域ごとの戦闘数、予定スコアの推移などを見る">スタッツ</button>
   <span class="sep"></span>
   <label>倍率
     <select id="zoom">
@@ -124,8 +125,18 @@
   <p class="hint">できた作戦は今のブロックをすべて置き換えます (「元に戻す」で戻せます)。ロックと戦闘の注意点は消え、名前・設定・全体の注意点は残ります。</p>
 </dialog>
 
+<dialog id="stats-dialog" class="auto-dialog stats-dialog">
+  <div class="row">
+    <b class="auto-title">スタッツ</b>
+    <span class="grow"></span>
+    <button id="stats-close" type="button">閉じる</button>
+  </div>
+  <div id="stats-body" class="stats-body"></div>
+</dialog>
+
 <script src="/static/common.js"></script>
 <script src="/static/app.js"></script>
 <script src="/static/auto.js"></script>
+<script src="/static/stats.js"></script>
 </body>
 </html>

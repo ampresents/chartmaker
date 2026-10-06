@@ -855,6 +855,7 @@ function startDrag(e, pi, ai, mode) {
 
 function renderSummary() {
   const el = $("#summary");
+  if (typeof refreshStats === "function") refreshStats();
   if (!details.length) { el.textContent = ""; return; }
   const max = details.reduce((s, d) => s + d.score, 0);
   const est = details.reduce((s, d) => s + d.est_score, 0);

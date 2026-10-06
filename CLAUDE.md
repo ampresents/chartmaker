@@ -88,6 +88,13 @@ py -3.11 -m venv .venv
   - `autoFill` then fills idle time (so no player sits out a whole cooldown when a battle fits). It replays the plan with the `calc_level` rules to get each boss's kill time, and builds the spans where an extra battle changes no kill time: a regular may push after the previous floor's Realm kill and must end at or after that boss's kill; a Realm grinder pushes in `[first Realm push, kill end)`, ends at or after the kill, and only on floors its tier allows; on the last floor, regulars not yet killed are open until `CHART_SEC` while no Realm has been pushed. Per player it repeatedly adds the highest-scoring battle that fits, if needed shifting that player's later grinder battles (or a killer tied with another battle ending at the same time) back within their spans, keeping the cooldown. Realm grinders on Lv11+ that would run past `CHART_SEC` are cut to the seconds left, with the rate scaled down and rounded to 2 decimals like the output. A gap can stay only when no boss the player may fight is alive in it (for example a tier-1 player while only a Lv11+ Realm is open).
   - `autoSearch` tries a grid of policies (strong/weak killers, `slack`, `kadd`, the first-sortie stagger, `joinFrom`), then hill-climbs one player's offset or one parameter at a time (mulberry32, seed 1, so runs are repeatable). It computes in 40 ms slices and yields through a `MessageChannel` (`autoYield`), because `setTimeout` is throttled to about once per second in background tabs.
   - The result reorders the columns by each player's first sortie (earliest on the left; ties and columns without battles keep their order), then gives the temporary names left to right. It replaces every block in one undo step (`replaceState`), after a confirm when the plan has battles. Names, settings, `timelag` and range notes are kept. Locks and battle notes are lost (the dialog says so), and locks are ignored by the search. 中止 stops the search and still offers the best plan found so far.
+- Stats (`スタッツ` button, `#stats-dialog`, `web/stats.js`, loaded after `auto.js`; its top-level names start with `stats`/`STATS_`). It is built in the browser from `details` (`/api/detail`, matched to blocks with `detailIndex`) and `simulateFloors`, with no server change. `statsCollect` returns null while `details` is out of sync. `renderSummary` calls `refreshStats`, which re-renders while the dialog is open. Sections:
+  - Cards: the expected score (and the score if every rate were 100%), the reached Lv, the battle count, and the free slots.
+  - Per score band (`statsBand`: Lv1–5, 6–10, 11–15, 16–20, 21–): battles per boss, battles with rate < 1, the score and its share, and the band's time span (from the opening of its first floor to the Realm kill of its last floor, or `CHART_SEC`).
+  - A cumulative score chart (SVG step line; a battle's score counts at `battle_end`, as in the tracker) with band-colored backgrounds, a tick at each Realm kill, and a hover tooltip (time, Lv, score).
+  - Dead sorties (撃破後の出撃): battles whose push is at or after the kill of their boss on their level's floor and that are not the killing battle. `calc_level` still scores them, but they can't happen in the game. Each item jumps to the block (`statsJump`).
+  - Per floor: opening, each boss's kill time, the duration, the battles, and the score.
+  - Per player: sorties / the maximum possible from 0 s, Realm battles, the score, the first sortie, and free slots (each gap fits `floor(gap / (timelag + 300))` more sorties; the tail after the last cooldown counts while a 30 s battle still fits by `CHART_SEC`) with their times.
 - The plan is to deploy publicly on Google Cloud (Cloud Run with gunicorn). Keep the server stateless.
 
 ## Progress tracker (`/tracker`, `web/tracker.*`, `store.py`)
@@ -144,6 +151,10 @@ The cost guards inside the app are per-process:
 - `CachedStore` reuses a Firestore `get` for 1 s, so tracker polling costs about 1 read per second per session per instance, instead of 1 per client.
 
 gunicorn runs 1 worker × 16 threads, so these guards share one process.
+
+## Plan-writing skill (`.claude/skills/raid-plan/`)
+
+A Claude Code skill for writing plans by hand with Claude, independent of the app. `scripts/simulate.py` is a standalone (stdlib-only) mirror of `parse`/`calc_level`/`generate_detail` that reports the score, floor clear times, errors and idle gaps; keep it in sync with ChartLib when the rules change. The `references/*.md` files are written by the user. `.claude/` is excluded from the container.
 
 ## Input schedule format (`src/*.txt`, parsed by `parse`)
 
