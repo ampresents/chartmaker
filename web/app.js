@@ -360,7 +360,7 @@ function deleteSelected() {
 }
 
 function save() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ state, scale, snapMargin })); } catch (e) { /* 保存できなくても動作は続ける */ }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ state, scale, snapMargin, critShow })); } catch (e) { /* 保存できなくても動作は続ける */ }
 }
 
 function load() {
@@ -369,6 +369,7 @@ function load() {
     if (d && d.state && Array.isArray(d.state.players)) {
       if (d.scale) scale = d.scale;
       if (Number.isInteger(d.snapMargin)) snapMargin = d.snapMargin;
+      if (typeof d.critShow === "boolean") critShow = d.critShow;
       fillPlayers(d.state.players);
       if (!Array.isArray(d.state.notes)) d.state.notes = [];
       if (d.state.constants) fixImages(d.state.constants);
@@ -600,6 +601,7 @@ async function fetchDetail() {
   const text = toText();
   if (!state.players.some((p) => p.actions.length)) {
     details = [];
+    critUpdate();
     showStatus(null);
     render(); renderSummary();
     return;
@@ -613,6 +615,7 @@ async function fetchDetail() {
     details = [];
     showStatus(e.message);
   }
+  critUpdate();
   render();
   renderSummary();
   // 入力中のフォームを作り直さない
@@ -740,9 +743,9 @@ function render() {
       const bossColor = colors[state.constants[a.boss]];
       const block = h("div", {
         class: "block" + (selKeys.has(`${pi}:${ai}`) ? " selected" : "") + (a.locked ? " locked" : "")
-          + (snapGuide && snapGuide.src.has(`${pi}:${ai}`) ? " snap-src" : ""),
+          + (snapGuide && snapGuide.src.has(`${pi}:${ai}`) ? " snap-src" : "") + (dmap.size ? critClass(`${pi}:${ai}`) : ""),
         style: { top: `${a.start * scale}px`, height: `${len * scale}px` },
-        title: a.note ? `📝 ${a.note}` : null,
+        title: [a.note ? `📝 ${a.note}` : null, dmap.size && critShow ? critText(`${pi}:${ai}`) : null].filter(Boolean).join("\n") || null,
         onpointerdown: (e) => startDrag(e, pi, ai, "move"),
         // 右クリックでボスを 1st → 2nd → 3rd → Realm → 1st の順に切り替える。
         // 複数選択中のブロックなら、選択中すべてをこのブロックの次のボスにそろえる
@@ -989,6 +992,7 @@ function renderSide() {
           onchange: (e) => mutate(() => { const t = noteText(e.target.value); if (t) a.note = t; else delete a.note; }),
         })),
         d ? h("p", { class: "hint" }, `戦闘 ${clock(d.battle_start)}–${clock(d.battle_end)}　再出撃 ${clock(d.cool_off)}　Lv${d.level}　${fmt(d.est_score)} / ${fmt(d.score)}`) : null,
+        d && critText(`${pi}:${ai}`) ? h("p", { class: "hint" + (critMap.get(`${pi}:${ai}`).rank ? " crit-hint" : "") }, critText(`${pi}:${ai}`)) : null,
         h("p", { class: "hint" }, "↑↓ キーで 1 秒ずつ（Shift で 10 秒）動かせます。ブロックの右クリックでボスを順に切り替え、1〜4 キーで直接指定できます。Ctrl+クリックで複数選択、Shift+クリックで同じ列の範囲選択ができます。"),
         h("div", { class: "row" },
           h("span", { class: "grow" }),
@@ -1056,6 +1060,9 @@ function renderSettings() {
       title: "ドラッグで Realm や次の階の 1st/2nd/3rd を置くとき、直前のボスの撃破から何秒あけた位置に吸着させるか。このブラウザにだけ保存し、作戦には含めません",
       onchange: (e) => { snapMargin = clamp(parseInt(e.target.value) || 0, 0, 60); e.target.value = snapMargin; save(); },
     })),
+    h("label", { class: "row", title: `撃破が ${CRIT_DELAYS[0]} 秒遅れると後の出撃がずれて予定スコアが減る戦闘 (クリティカルパス) に、紫の線を付けます。このブラウザにだけ保存し、作戦には含めません` },
+      h("input", { type: "checkbox", checked: critShow, onchange: (e) => { critShow = e.target.checked; save(); render(); } }),
+      "クリティカルパスを強調する"),
     ...renderRangeNotes(),
     h("h3", {}, "ボス（属性色・画像）"),
   ];

@@ -8,6 +8,7 @@
   --accent: #f0b400;
   --snap: #4fd8ff;       /* ドラッグの吸着線（グリッドの黄色と区別する） */
   --danger: #e25050;
+  --crit: #c040ff;       /* クリティカルパス (紫) */
   --grid-min: rgba(240, 60, 100, 0.25);
   --grid-5min: rgba(240, 180, 0, 0.45);
   --grid-30min: rgba(140, 100, 240, 0.9);
@@ -134,6 +135,11 @@ body.resizing { cursor: col-resize; user-select: none; }
 .block.locked { cursor: not-allowed; }
 .block.locked::after { content: ""; position: absolute; inset: 0; border: 2px dashed rgba(255, 255, 255, .85);
   border-radius: 2px; pointer-events: none; }
+/* 遅れに弱い撃破: 左端の紫の線（強いほど太く光らせる）。::after はロックが使う */
+.block.crit::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--crit); z-index: 1; pointer-events: none; }
+.block.crit-2::before { width: 5px; box-shadow: 0 0 8px 1px var(--crit); }
+.block.crit .info { left: 8px; z-index: 1; }
+.crit-hint { color: #d58cff; }
 .block .lag { position: absolute; left: 0; right: 0; top: 0; background: var(--lag); }
 .block .checker { position: absolute; left: 0; right: 0; bottom: 0;
   background: repeating-conic-gradient(#606060 0 25%, #808080 0 50%) 0 0 / 12px 12px; }

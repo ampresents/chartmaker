@@ -277,6 +277,7 @@ function renderStats() {
     statsBandSection(data, total),
     statsChart(data, statsBands(data)),
     statsDeadSection(data),
+    critStatsSection(),
     statsFloorSection(data),
     statsPlayerSection(data)].filter(Boolean));
 }

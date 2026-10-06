@@ -95,6 +95,11 @@ py -3.11 -m venv .venv
   - Dead sorties (撃破後の出撃): battles whose push is at or after the kill of their boss on their level's floor and that are not the killing battle. `calc_level` still scores them, but they can't happen in the game. Each item jumps to the block (`statsJump`).
   - Per floor: opening, each boss's kill time, the duration, the battles, and the score.
   - Per player: sorties / the maximum possible from 0 s, Realm battles, the score, the first sortie, and free slots (each gap fits `floor(gap / (timelag + 300))` more sorties; the tail after the last cooldown counts while a 30 s battle still fits by `CHART_SEC`) with their times.
+- Delay-sensitive kills (critical path, `web/critical.js`, loaded after `auto.js` and before `stats.js`; its top-level names start with `crit`/`CRIT_`). Computed in the browser from `details` only: `critUpdate()` runs in `fetchDetail` before `render()`.
+  - For each (level, boss), the kill is the battle with the earliest `battle_end` (a tie means no single battle is critical, so it is skipped). `critRun` delays that battle's end by each of `CRIT_DELAYS` (10, 30 s) and replays the plan with the tracker's `schedule()` rules (no `RESORTIE_MARGIN`): a sortie is the latest of its push, the previous battle's cooldown end, the previous boss's kill and its own boss's open gate (gates shifted by the plan's own margin), a battle is skipped when its boss dies before it sorties, and kills are recomputed until nothing changes. The score is recomputed with the `generate_detail` rules (floor from the new Realm kills, rate cut past `CHART_SEC`). The loss is the base score minus the delayed score.
+  - `critMap` (`"pi:ai"` → `{loss, moved, rank}`): rank 2 when the 10 s loss is at least half the largest, 1 when it is above 0. Blocks get `.crit`/`.crit-2` (a purple left stripe), and the block title and the selected-battle panel show the losses and how many sorties move.
+  - `critShow` (設定 → 全般 → クリティカルパスを強調する, default on) only hides the stripe and title text. It is saved in the `localStorage` draft, never in the txt.
+  - Stats has a クリティカルパス section: the top `CRIT_TOP` (10) by 10 s loss, each jumping to its block.
 - The plan is to deploy publicly on Google Cloud (Cloud Run with gunicorn). Keep the server stateless.
 
 ## Progress tracker (`/tracker`, `web/tracker.*`, `store.py`)
