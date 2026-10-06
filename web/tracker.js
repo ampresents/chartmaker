@@ -230,7 +230,7 @@ function buildBoard() {
   buildTimers();
   // 個人ビューでは作戦チャート (0.3〜1.4 MB) を読み込まない
   if (personal) buildPersonal();
-  else { buildChart(); buildPeople(); }
+  else { buildChart(); buildPeople(); reviewBuild(); }
   $("#board").hidden = false;
   $("#btn-share").hidden = false;
   $("#btn-end").hidden = personal;
@@ -572,6 +572,7 @@ function render() {
       : [h("div", { class: "empty" }, "まだ討伐はありません")]);
   $("#btn-undo").disabled = busy || !events.length;
   renderNotify();
+  if (!personal) reviewRefresh();
 
   const stale = Date.now() - lastSync > 5000;
   setText($("#sync"), stale ? "サーバーと同期できていません" : "同期中");
@@ -818,7 +819,8 @@ async function discard() {
 function endSession(msg) {
   ended = true;
   clearInterval(tickTimer);
-  for (const id of ["#board", "#btn-share", "#btn-end", "#btn-notify", "#notify", "#btn-people", "#btn-board"]) $(id).hidden = true;
+  for (const id of ["#board", "#btn-share", "#btn-end", "#btn-notify", "#notify", "#btn-people", "#btn-board", "#btn-review"]) $(id).hidden = true;
+  if ($("#review-dialog").open) $("#review-dialog").close();
   clearTimeout(showStatus.timer);
   $("#status").classList.remove("ok");
   $("#status").textContent = msg;
@@ -860,8 +862,9 @@ function showSetup() {
   $("#setup-text").addEventListener("change", (e) => setupText(e.target.value));
   $("#setup-file").addEventListener("change", async (e) => {
     const f = e.target.files[0];
-    if (f) setupText(await f.text());
     e.target.value = "";
+    if (!f) return;
+    try { setupText(planTextOf(await f.text())); } catch (err) { showStatus(err.message); }
   });
   $("#btn-create").addEventListener("click", async () => {
     const date = $("#setup-date").value;

@@ -20,3 +20,14 @@ const CHART_SEC = 3600;    // 表示する時間
     // 出せなくても他の機能には影響しないので無視する
   }
 })();
+
+// 「テキストを開く」で読んだファイルの中身から作戦の txt を取り出す。振り返りの JSON (review.js の保存形式) なら
+// 中の text を返す。作戦テキストを含まない JSON や、知らない JSON は Error を投げる
+function planTextOf(raw) {
+  if (!/^\s*\{/.test(raw)) return raw;
+  let data;
+  try { data = JSON.parse(raw); } catch (e) { return raw; }
+  if (data?.kind !== "chartmaker-review") throw new Error("ChartMaker の作戦テキストか振り返りの JSON を開いてください");
+  if (typeof data.text !== "string") throw new Error("この振り返りの JSON には作戦テキストが含まれていません");
+  return data.text;
+}

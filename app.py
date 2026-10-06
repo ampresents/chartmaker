@@ -477,6 +477,16 @@ def api_session_chart(sid):
     return r
 
 
+@app.get("/api/sessions/<sid>/text")
+@rate_limit("kill", LIMIT_KILL)
+def api_session_text(sid):
+    """振り返りの JSON に入れる作戦 txt。ポーリングでは返さないので、保存するときだけ取りに来る"""
+    doc = store.get(sid)
+    if not doc.get("text"):
+        raise NotFound(sid)  # 作戦テキストを保存する前に作ったセッション
+    return jsonify(text=doc["text"])
+
+
 def current_floor(events):
     floor = 1 + sum(1 for e in events if e["boss"] == "Realm_boss")
     killed = {e["boss"] for e in events if e["floor"] == floor}

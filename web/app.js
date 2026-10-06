@@ -1227,7 +1227,10 @@ function bindUI() {
   $("#file-open").addEventListener("change", async (e) => {
     const f = e.target.files[0];
     e.target.value = "";
-    if (f) await importText(await f.text());
+    if (!f) return;
+    let text;
+    try { text = planTextOf(await f.text()); } catch (err) { showStatus(err.message); return; }
+    await importText(text);
   });
   $("#btn-undo").addEventListener("click", undo);
   $("#btn-redo").addEventListener("click", redo);

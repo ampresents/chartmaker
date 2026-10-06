@@ -150,6 +150,15 @@ def test_session_chart_without_text(client, monkeypatch):
     assert client.get("/api/sessions/xxxx/chart.png").status_code == 404
 
 
+def test_session_text(client):
+    sid = create_session(client)
+    r = client.get("/api/sessions/{}/text".format(sid))
+    assert r.status_code == 200 and r.json == {"text": PLAN}
+    app_module.store.update(sid, lambda doc: {k: v for k, v in doc.items() if k != "text"})
+    assert client.get("/api/sessions/{}/text".format(sid)).status_code == 404
+    assert client.get("/api/sessions/xxxx/text").status_code == 404
+
+
 def test_chart_cache_lru():
     c = app_module.ChartCache(2)
     c.put("a", b"1")

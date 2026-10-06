@@ -19,6 +19,7 @@
   <span id="sync" class="muted"></span>
   <a class="btn" href="/guide#tracker" target="_blank" rel="noopener" title="使い方ガイドを開く（別タブ）">使い方</a>
   <a id="support-link" class="btn support" hidden target="_blank" rel="noopener" title="ChartMaker の開発とサーバー代を支援する（外部サイト）">♡ 開発を支援</a>
+  <button id="btn-review" hidden title="作戦と実際の討伐時刻の差を、階ごとの表・グラフ・遅れが増えたボスで見る。JSON で保存できる">振り返り</button>
   <button id="btn-people" hidden title="プレイヤーごとの、自分の出撃だけを見る画面 (閲覧専用) の URL を開く・コピーする">個人ビュー</button>
   <a id="btn-board" class="btn" hidden title="全員の進行状況と討伐ボタンのある画面に戻る">全体を見る</a>
   <button id="btn-end" class="danger" hidden title="このセッションを破棄し、全端末の進行管理と Discord 通知を終わらせる">セッションを破棄</button>
@@ -32,7 +33,7 @@
     <h2>セッションを作成</h2>
     <p class="hint">作戦のテキストを読み込み、ゲームの開始日時を確認して作成します。作成したページの URL を共有すると、複数の端末で同じ進行状況を操作できます。</p>
     <div class="row">
-      <label class="btn">テキストを開く<input id="setup-file" type="file" accept=".txt,text/plain" hidden></label>
+      <label class="btn" title="作戦のテキスト (.txt) か、振り返りで保存した JSON を開く">テキストを開く<input id="setup-file" type="file" accept=".txt,.json,text/plain,application/json" hidden></label>
       <span class="hint">または下に貼り付け</span>
     </div>
     <textarea id="setup-text" spellcheck="false"></textarea>
@@ -48,6 +49,11 @@
       <span class="grow"></span>
       <button id="btn-create" class="primary">作成</button>
     </div>
+  </div>
+  <div class="setup-box review-open">
+    <h2>保存した振り返りを見る</h2>
+    <p class="hint">振り返りの「JSON で保存」で保存したファイルを開くと、セッションが消えた後でも振り返りを見られます。</p>
+    <div class="row"><label class="btn">振り返りファイルを開く<input id="review-file" type="file" accept=".json,application/json" hidden></label></div>
   </div>
 </section>
 
@@ -161,7 +167,19 @@
   <div class="row"><span class="grow"></span><button id="people-copy-all" type="button">全員分をコピー</button></div>
 </dialog>
 
+<dialog id="review-dialog" class="fix-dialog review-dialog">
+  <div class="row">
+    <b id="review-title" class="fix-name">振り返り</b>
+    <span class="grow"></span>
+    <button id="review-save" type="button" title="討伐記録・補正・作戦をこの端末に JSON で保存する">JSON で保存</button>
+    <button id="review-close" type="button">閉じる</button>
+  </div>
+  <p id="review-hint" class="hint">討伐時刻は討伐ボタンを押した時刻です。押すのが遅れた分も遅れに数えます。セッションは作成から 24 時間で消えるので、残したいときは JSON で保存してください。</p>
+  <div id="review-body" class="review-body"></div>
+</dialog>
+
 <script src="/static/common.js"></script>
 <script src="/static/tracker.js"></script>
+<script src="/static/review.js"></script>
 </body>
 </html>
