@@ -147,3 +147,47 @@ body.late .toolbar { box-shadow: inset 0 -3px var(--late); }
 @keyframes chart-blink { 50% { opacity: 0.15; } }
 .chart-now { position: absolute; left: 0; right: 0; height: 0; border-top: 3px solid #39ff14;
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.8); }
+
+/* 個人ビュー (?p=): 自分の出撃だけ。スマホ向けに全体の部品を隠して大きく出す */
+body.personal .bosses, body.personal .lists, body.personal .timers-box, body.personal .history-box,
+body.personal .chart-box, body.personal .stat-score, body.personal #comment { display: none; }
+body.personal .toolbar { flex-wrap: wrap; }
+body.personal .toolbar h1 img { height: 22px; }
+body.personal #board { padding: 10px; gap: 10px; }
+body.personal .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+body.personal .stat { padding: 6px 10px; min-width: 0; }
+body.personal .stat .value { font-size: 26px; }
+body.personal .stat .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.me-box { display: flex; flex-direction: column; gap: 10px; }
+.me-box .row { flex-wrap: wrap; }
+#me-select { font-size: 18px; padding: 4px 8px; max-width: 100%; }
+#me-body { display: flex; flex-direction: column; gap: 10px; }
+#me-body h3 { margin: 4px 0 0; font-size: 14px; color: var(--accent); }
+.me-card { background: var(--panel); border: 3px solid var(--line); border-radius: 10px; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 4px; text-align: center; }
+.me-head { display: flex; justify-content: center; align-items: center; gap: 10px; font-size: 18px; font-weight: bold; }
+.me-target { display: inline-flex; align-items: center; gap: 6px; }
+.me-target .boss-tag { font-size: 16px; padding: 1px 8px; }
+.me-count { font-size: 64px; font-weight: bold; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.me-sub { color: var(--muted); font-size: 15px; }
+.me-note { color: #ff9be4; font-size: 17px; font-weight: bold; overflow-wrap: anywhere; }
+.me-card.m-soon { border-color: var(--ok); background: var(--ok-bg); }
+.me-card.m-soon .me-count { color: var(--ok); }
+.me-card.m-fighting { border-color: var(--boss); }
+.me-card.m-fighting .me-count { color: var(--boss); font-size: 48px; }
+.me-card.m-over { border-color: var(--late); }
+.me-card.m-over .me-count { color: var(--late); }
+.me-card.m-waiting .me-count { color: var(--late); }
+.me-card.m-end { opacity: .6; }
+.me-list { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.me-row { display: grid; grid-template-columns: 44px 56px 44px 1fr auto; gap: 8px; align-items: center;
+  padding: 4px 8px; border-radius: 4px; background: var(--panel); font-variant-numeric: tabular-nums; }
+.me-row .me-at { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.me-row .me-state { white-space: nowrap; text-align: right; }
+.me-row.current { outline: 2px solid var(--accent); }
+.me-row.s-fighting .me-state { color: #ffd84a; font-weight: bold; }
+.me-row.s-waiting .me-state { color: var(--late); font-weight: bold; }
+.me-row.s-done, .me-row.s-skip { opacity: .45; }
+.people-list { display: flex; flex-direction: column; gap: 4px; max-height: 60vh; overflow: auto; margin: 8px 0; }
+.people-row { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: center; }
+.people-row .btn { text-decoration: none; }

@@ -32,6 +32,9 @@ const NOTE_LEAD = 30;           // 通知なしのセッションで、注意点
 const RESORTIE_MARGIN = 1;      // クールタイム明けから実際に再出撃できるまでの秒 (操作の時間)
 let starts = {};                // 手で補正した実際の出撃秒 { plan.detail の添字: 秒 } (サーバーに保存し全端末で共有)
 let fixPlayer = null;           // 補正ダイアログで開いているプレイヤー (raw_name)
+// 個人ビュー (?p=<raw_name>): 1 人の出撃だけを大きく出す閲覧専用の画面。討伐・補正・破棄・Discord 通知はしない
+const personal = new URLSearchParams(location.search).has("p");
+let me = null;                  // 個人ビューで表示中のプレイヤー (raw_name)。見つからなければ null で選択欄を出す
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -225,15 +228,129 @@ function buildBoard() {
     return card;
   }));
   buildTimers();
-  buildChart();
+  // 個人ビューでは作戦チャート (0.3〜1.4 MB) を読み込まない
+  if (personal) buildPersonal();
+  else { buildChart(); buildPeople(); }
   $("#board").hidden = false;
   $("#btn-share").hidden = false;
-  $("#btn-end").hidden = false;
+  $("#btn-end").hidden = personal;
+  $("#btn-people").hidden = personal;
+  $("#btn-board").hidden = !personal;
   if (plan.notify_lead) {
     $("#notify").hidden = false;
-    $("#btn-notify").hidden = false;
+    $("#btn-notify").hidden = personal;
     renderNotify();
   }
+}
+
+// ---------------------------------------------------------------- 個人ビュー
+
+const personalUrl = (name) => `${location.origin}/tracker/${sessionId()}?p=${encodeURIComponent(name)}`;
+
+async function copyText(text, msg) {
+  try { await navigator.clipboard.writeText(text); showStatus(msg, true); } catch (e) { prompt("コピーしてください", text); }
+}
+
+// 全体の画面の「個人ビュー」ダイアログ: プレイヤーごとの URL を開く・コピーする (Discord に貼って配る用)
+function buildPeople() {
+  const dlg = $("#people-dialog");
+  $("#people-list").replaceChildren(...plan.byPlayer.map((battles) => {
+    const x = battles[0];
+    const url = personalUrl(x.raw_name);
+    return h("div", { class: "people-row" }, playerTag(x, false),
+      h("a", { class: "btn", href: url, target: "_blank", rel: "noopener" }, "開く"),
+      h("button", { type: "button", onclick: () => copyText(url, `${x.player_name} の URL をコピーしました`) }, "コピー"));
+  }));
+  $("#btn-people").addEventListener("click", () => dlg.showModal());
+  $("#people-close").addEventListener("click", () => dlg.close());
+  dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
+  $("#people-copy-all").addEventListener("click", () => copyText(
+    plan.byPlayer.map((b) => `${b[0].player_name} ${personalUrl(b[0].raw_name)}`).join("\n"),
+    "全員分の URL をコピーしました"));
+}
+
+function buildPersonal() {
+  document.body.classList.add("personal");
+  const sel = $("#me-select");
+  sel.replaceChildren(h("option", { value: "" }, "プレイヤーを選ぶ"),
+    ...plan.byPlayer.map((b) => h("option", { value: b[0].raw_name }, b[0].player_name)));
+  sel.addEventListener("change", () => { setMe(sel.value); render(); });
+  $("#btn-board").href = `/tracker/${sessionId()}`;
+  setMe(new URLSearchParams(location.search).get("p"));
+  $("#me").hidden = false;
+}
+
+function setMe(name) {
+  me = plan.column.has(name) ? name : null;
+  $("#me-select").value = me || "";
+  history.replaceState(null, "", `/tracker/${sessionId()}?p=${encodeURIComponent(me || "")}`);
+  const x = me && plan.byPlayer[plan.column.get(me)][0];
+  document.title = x ? `${x.player_name} - 進行管理` : "進行管理";
+}
+
+// 自分の挑戦中・次の出撃を大きく出し、その下に自分の戦闘をすべて並べる
+function renderMe(sched, now) {
+  if (!personal) return;
+  $("#me-empty").hidden = !!me;
+  $("#me-body").hidden = !me;
+  if (!me) return;
+  const mine = sched.filter((s) => s.x.raw_name === me);
+  const { fighting, next } = playerStatus(sched, me);
+  const target = fighting || next;
+  let label, count, sub, cls = "";
+  if (fighting) {
+    const left = Math.ceil(fighting.at + (fighting.x.battle_end - fighting.x.push_start) - now);
+    const ready = Math.ceil(readyAt(fighting) - now);
+    label = "挑戦中";
+    count = left >= 0 ? `残り ${left}秒` : `${-left}秒 超過`;
+    cls = left >= 0 ? "m-fighting" : "m-fighting m-over";
+    sub = (ready > 0 ? `再出撃まで ${mmss(ready)}` : "クールタイム明け")
+      + (next ? `　次 LV${next.x.level} ${BOSS_LABEL[next.x.action]}` : "");
+  } else if (next && next.state === "waiting") {
+    label = "出撃待ち";
+    count = "待機中";
+    cls = "m-waiting";
+    sub = next.wait || "前のボスの討伐待ち";
+  } else if (next) {
+    const left = Math.max(0, Math.ceil(next.at - now));
+    const diff = Math.round(next.at - next.x.push_start);
+    label = "次の出撃まで";
+    count = mmss(left);
+    cls = left <= noteLead() ? "m-soon" : "";
+    sub = next.known
+      ? `見込み ${mmss(next.at)}（作戦 ${mmss(next.x.push_start)}${diff > 0 ? ` +${diff}秒` : ""}）`
+      : `${next.wait || "待機中"}（早くても ${mmss(next.at)}）`;
+  } else {
+    label = "作戦終了";
+    count = "--:--";
+    cls = "m-end";
+    sub = "作戦の出撃はもうありません";
+  }
+  $("#me-card").className = `me-card ${cls}`;
+  $("#me-card").style.setProperty("--boss", target ? bgr(plan.bosses[target.x.action].color) : "");
+  setText($("#me-label"), label);
+  setChildren($("#me-target"), target ? `${target.x.id}` : "", () =>
+    target ? [h("span", { class: "muted" }, `LV${target.x.level}`), bossTag(target.x.action)] : []);
+  setText($("#me-count"), count);
+  setText($("#me-sub"), sub);
+  setText($("#me-note"), target?.x.note ? `📝 ${target.x.note}` : "");
+  $("#me-note").hidden = !target?.x.note;
+
+  setChildren($("#me-list"), `${me}|${target?.x.id}|${mine.map((s) => s.state).join()}`, () => mine.map((s) =>
+    h("div", { class: `me-row s-${s.state}${s === target ? " current" : ""}` },
+      h("span", { class: "muted" }, `LV${s.x.level}`), bossTag(s.x.action),
+      h("span", { class: "muted", title: "作戦の出撃時刻" }, mmss(s.x.push_start)),
+      h("span", { class: "me-at" }), h("span", { class: "me-state" }), rowNote(s.x))));
+  const rows = $("#me-list").children;
+  mine.forEach((s, i) => {
+    const at = rows[i].querySelector(".me-at"), st = rows[i].querySelector(".me-state");
+    const wait = s.state === "waiting" || (s.state === "upcoming" && !s.known);
+    setText(at, s.state === "skip" ? "" : wait ? s.wait || "待機中"
+      : `${s.state === "upcoming" ? "見込み" : "出撃"} ${mmss(s.at)}${s.fixed ? " ✎" : ""}`);
+    setText(st, {
+      done: "済", skip: "中止（先に討伐）", fighting: "挑戦中", waiting: "待機中",
+    }[s.state] || `あと ${mmss(Math.max(0, Math.ceil(s.at - now)))}`);
+  });
 }
 
 function buildChart() {
@@ -435,9 +552,11 @@ function render() {
   });
 
   renderNotes(sched, now);
+  renderMe(sched, now);
   renderTimers(sched, now);
   renderChart(sched, fighting, upcoming, now);
-  notifyUpcoming(sched, now);
+  // 個人ビューは閲覧専用なので Discord 通知を頼まない (全体の画面を開いている端末が送る)
+  if (!personal) notifyUpcoming(sched, now);
 
   // 履歴 (新しい順)
   setChildren($("#history"), `${version}`, () =>
@@ -580,7 +699,7 @@ const noteLead = () => plan.notify_lead || NOTE_LEAD;
 // 全体の注意点は作戦の開始秒ちょうどから終了秒まで出す
 function renderNotes(sched, now) {
   const lead = noteLead();
-  const battles = sched.filter((s) => s.x.note
+  const battles = sched.filter((s) => s.x.note && (!personal || s.x.raw_name === me)
     && (s.state === "fighting" || s.state === "waiting" || (s.state === "upcoming" && s.at - now <= lead)));
   const ranges = (plan.notes || []).map((n, i) => ({ ...n, i })).filter((n) => n.start <= now && now < n.end);
   const items = [
@@ -699,7 +818,7 @@ async function discard() {
 function endSession(msg) {
   ended = true;
   clearInterval(tickTimer);
-  for (const id of ["#board", "#btn-share", "#btn-end", "#btn-notify", "#notify"]) $(id).hidden = true;
+  for (const id of ["#board", "#btn-share", "#btn-end", "#btn-notify", "#notify", "#btn-people", "#btn-board"]) $(id).hidden = true;
   clearTimeout(showStatus.timer);
   $("#status").classList.remove("ok");
   $("#status").textContent = msg;
@@ -770,9 +889,7 @@ function showSetup() {
 }
 
 function init() {
-  $("#btn-share").addEventListener("click", async () => {
-    try { await navigator.clipboard.writeText(location.href); showStatus("URL をコピーしました", true); } catch (e) { prompt("この URL を共有してください", location.href); }
-  });
+  $("#btn-share").addEventListener("click", () => copyText(location.href, "URL をコピーしました"));
   $("#btn-undo").addEventListener("click", undo);
   $("#btn-notify").addEventListener("click", toggleNotify);
   $("#btn-end").addEventListener("click", discard);

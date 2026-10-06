@@ -18,6 +18,8 @@
   <button id="btn-notify" hidden title="進行が大きく狂ったときなどに、全端末の Discord 通知 (読み上げ・テキスト) を止める">通知を止める</button>
   <span id="sync" class="muted"></span>
   <a id="support-link" class="btn support" hidden target="_blank" rel="noopener" title="ChartMaker の開発とサーバー代を支援する（外部サイト）">♡ 開発を支援</a>
+  <button id="btn-people" hidden title="プレイヤーごとの、自分の出撃だけを見る画面 (閲覧専用) の URL を開く・コピーする">個人ビュー</button>
+  <a id="btn-board" class="btn" hidden title="全員の進行状況と討伐ボタンのある画面に戻る">全体を見る</a>
   <button id="btn-end" class="danger" hidden title="このセッションを破棄し、全端末の進行管理と Discord 通知を終わらせる">セッションを破棄</button>
   <button id="btn-share" hidden title="このページの URL をコピーして他の操作者に共有">URL をコピー</button>
 </header>
@@ -49,11 +51,30 @@
 </section>
 
 <main id="board" hidden>
+  <section id="me" class="me-box" hidden>
+    <div class="row">
+      <select id="me-select" aria-label="プレイヤー"></select>
+      <span class="grow"></span>
+      <span class="muted">自分の出撃だけを表示します（閲覧専用）</span>
+    </div>
+    <p id="me-empty" class="hint">表示するプレイヤーを選んでください。</p>
+    <div id="me-body">
+      <div id="me-card" class="me-card">
+        <div class="me-head"><span id="me-label"></span><span id="me-target" class="me-target"></span></div>
+        <div id="me-count" class="me-count"></div>
+        <div id="me-sub" class="me-sub"></div>
+        <div id="me-note" class="me-note" hidden></div>
+      </div>
+      <h3>自分の出撃</h3>
+      <div id="me-list" class="me-list"></div>
+    </div>
+  </section>
+
   <section class="stats">
     <div class="stat"><div class="label">現在の階層</div><div class="value" id="floor"></div></div>
     <div class="stat"><div class="label" id="clock-label">残り時間</div><div class="value" id="clock"></div><div class="sub" id="clock-sub"></div></div>
     <div class="stat" id="delay-box"><div class="label">作戦との差</div><div class="value" id="delay"></div><div class="sub" id="delay-sub"></div></div>
-    <div class="stat"><div class="label">予定スコア</div><div class="value" id="score"></div><div class="sub" id="score-sub"></div></div>
+    <div class="stat stat-score"><div class="label">予定スコア</div><div class="value" id="score"></div><div class="sub" id="score-sub"></div></div>
   </section>
 
   <section class="bosses" id="bosses"></section>
@@ -126,6 +147,17 @@
     <button type="button" data-d="60">+60秒</button>
   </div>
   <p class="hint">出撃可能までの残りを直します。補正は全端末で共有され、このプレイヤーの後の出撃の見込みにも反映されます。</p>
+</dialog>
+
+<dialog id="people-dialog" class="fix-dialog">
+  <div class="row">
+    <b class="fix-name">個人ビュー</b>
+    <span class="grow"></span>
+    <button id="people-close" type="button">閉じる</button>
+  </div>
+  <p class="hint">プレイヤーごとに、自分の挑戦中・次の出撃までの時間・自分の戦闘の一覧だけを大きく出す画面です。スマホでの確認向けの閲覧専用で、討伐ボタンや補正はなく、Discord 通知も送りません。URL を各プレイヤーに配ってください。</p>
+  <div id="people-list" class="people-list"></div>
+  <div class="row"><span class="grow"></span><button id="people-copy-all" type="button">全員分をコピー</button></div>
 </dialog>
 
 <script src="/static/common.js"></script>
