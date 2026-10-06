@@ -1208,7 +1208,20 @@ async function loadSharedPlan() {
   await importText(text);
 }
 
+// 「サンプルを開く」: 架空の作戦 web/sample.txt を読み込む (1 回の undo で戻せる)
+async function openSample() {
+  if (state.players.some((p) => p.actions.length) && !confirm("サンプルの作戦を開きますか？ 今の作戦は「元に戻す」で復元できます。")) return;
+  try {
+    const res = await fetch("/static/sample.txt");
+    if (!res.ok) throw new Error(`サンプルを読み込めませんでした (${res.status})`);
+    await importText(await res.text());
+  } catch (e) {
+    showStatus(e.message);
+  }
+}
+
 function bindUI() {
+  $("#btn-sample").addEventListener("click", openSample);
   document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
   $("#btn-new").addEventListener("click", () => { if (confirm("今の作戦を破棄して新規作成しますか？（元に戻すで復元できます）")) replaceState(defaultState()); });
   $("#file-open").addEventListener("change", async (e) => {

@@ -112,6 +112,7 @@ body.resizing { cursor: col-resize; user-select: none; }
   display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 20px; text-align: center;
   background: #000c; border: 1px dashed var(--accent); border-radius: 6px; color: var(--fg); }
 .guide-card span { color: var(--muted); font-size: 12px; }
+.guide-card .guide-actions { pointer-events: auto; margin-top: 4px; font-size: 13px; }
 .axis .tick { position: absolute; right: 6px; font-size: 11px; color: rgb(240, 180, 0); transform: translateY(-50%); }
 .axis .tick.half { color: rgb(140, 100, 240); font-weight: bold; }
 .axis .note-band { position: absolute; width: 4px; background: #ff7ad9; border-radius: 2px; opacity: .8; cursor: pointer; }

@@ -162,6 +162,12 @@ def index():
     return send_from_directory(WEB_DIR, "index.html")
 
 
+# 使い方ガイド (静的ページ)
+@app.get("/guide")
+def guide():
+    return send_from_directory(WEB_DIR, "guide.html")
+
+
 # ヘッダー用。画像に焼き込むロゴ (config.json の logo_image) と同じファイルを使う
 @app.get("/logo.png")
 def logo():

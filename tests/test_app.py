@@ -73,6 +73,26 @@ def test_site(client):
     assert client.get("/api/site").json.keys() == {"support_url"}
 
 
+def test_guide(client):
+    r = client.get("/guide")
+    assert r.status_code == 200
+    assert "使い方" in r.get_data(as_text=True)
+
+
+def test_sample_plan(client):
+    # エディタの「サンプルを開く」が読む作戦。parse・detail・注意点 (進行管理) がすべて通ること
+    r = client.get("/static/sample.txt")
+    assert r.status_code == 200
+    text = r.get_data(as_text=True)
+    r.close()
+    assert client.post("/api/detail", json={"text": text}).status_code == 200
+    r = client.post("/api/sessions", json={"text": text, "start_epoch_ms": 1_700_000_000_000})
+    assert r.status_code == 200, r.json
+    plan = client.get(f"/api/sessions/{r.json['id']}").json["plan"]
+    assert len(plan["notes"]) == 2
+    assert sum(1 for d in plan["detail"] if d.get("note")) == 1
+
+
 def test_rate_limiter():
     limiter = app_module.RateLimiter()
     assert [limiter.allow("ip", 2, 60) for _ in range(3)] == [True, True, False]

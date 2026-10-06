@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChartMaker 使い方</title>
+<link rel="icon" type="image/png" href="/icon.png">
+<style>
+:root {
+  --bg: #111; --panel: #1c1c1f; --panel2: #26262b; --line: #3a3a40;
+  --fg: #e6e6e6; --muted: #9a9aa3; --accent: #f0b400; --link: #4fd8ff; --crit: #c040ff;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 16px; }
+body { margin: 0; background: var(--bg); color: var(--fg);
+  font: 15px/1.75 "Meiryo", "Hiragino Sans", system-ui, sans-serif; }
+a { color: var(--link); }
+header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 10px 16px;
+  background: var(--panel); border-bottom: 1px solid var(--line); }
+header img { display: block; height: 40px; width: auto; }
+header .btn { margin-left: auto; }
+.btn { display: inline-block; padding: 4px 12px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel2); color: var(--fg); text-decoration: none; font-size: 13px; }
+.btn:hover { border-color: var(--muted); }
+.wrap { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; max-width: 1080px; margin: 0 auto; padding: 24px 16px 80px; }
+nav { position: sticky; top: 16px; align-self: start; font-size: 13px; line-height: 1.6; }
+nav ol { margin: 0; padding-left: 1.4em; }
+nav li { margin: 4px 0; }
+nav a { color: var(--fg); text-decoration: none; }
+nav a:hover { color: var(--accent); }
+main { min-width: 0; }
+h1 { font-size: 26px; margin: 0 0 8px; }
+h2 { font-size: 20px; margin: 48px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
+h3 { font-size: 16px; margin: 28px 0 8px; color: var(--accent); }
+p, ul, ol, table { margin: 8px 0 12px; }
+li { margin: 3px 0; }
+.lead { color: var(--muted); }
+.flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 16px 0; padding: 0; list-style: none; counter-reset: step; }
+.flow li { margin: 0; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font-size: 13px; line-height: 1.6; }
+.flow li::before { counter-increment: step; content: counter(step); display: inline-block; width: 22px; height: 22px; margin-right: 6px;
+  border-radius: 50%; background: var(--accent); color: #111; text-align: center; font-weight: bold; line-height: 22px; }
+.flow b { font-size: 15px; }
+.flow span { display: block; margin-top: 4px; color: var(--muted); }
+.note { padding: 10px 14px; background: var(--panel); border-left: 3px solid var(--accent); border-radius: 0 4px 4px 0; }
+kbd { display: inline-block; padding: 0 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+  background: var(--panel2); font: 12px/1.6 Consolas, monospace; }
+code { padding: 1px 5px; background: var(--panel2); border-radius: 3px; font: 13px Consolas, monospace; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { padding: 6px 10px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { background: var(--panel); white-space: nowrap; }
+.ui { padding: 0 6px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel2); font-size: 13px; white-space: nowrap; }
+.crit { color: var(--crit); font-weight: bold; }
+dt { margin-top: 16px; font-weight: bold; }
+dd { margin: 4px 0 0 1.2em; }
+@media (max-width: 760px) {
+  .wrap { grid-template-columns: 1fr; gap: 0; }
+  nav { position: static; padding: 12px 14px; background: var(--panel); border-radius: 6px; }
+  .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  table { display: block; overflow-x: auto; }
+}
+</style>
+</head>
+<body>
+<header>
+  <a href="/"><img src="/logo.png" alt="ChartMaker" width="380" height="72"></a>
+  <b>使い方</b>
+  <a class="btn" href="/">エディタを開く</a>
+</header>
+
+<div class="wrap">
+<nav aria-label="目次">
+  <ol>
+    <li><a href="#start">はじめに</a></li>
+    <li><a href="#screen">エディタの画面</a></li>
+    <li><a href="#blocks">戦闘を置く・動かす</a></li>
+    <li><a href="#players">プレイヤーと設定</a></li>
+    <li><a href="#notes">注意点</a></li>
+    <li><a href="#auto">自動作成 β</a></li>
+    <li><a href="#check">スタッツとクリティカルパス</a></li>
+    <li><a href="#share">保存と共有</a></li>
+    <li><a href="#tracker">進行管理</a></li>
+    <li><a href="#personal">個人ビュー</a></li>
+    <li><a href="#faq">よくある質問</a></li>
+  </ol>
+</nav>
+
+<main>
+<h1>ChartMaker の使い方</h1>
+<p class="lead">ChartMaker は、レイドの作戦 (誰が、いつ、どのボスに出撃するか) を作って共有し、当日の進行を管理するためのツールです。このページではツールの仕組みと操作を説明します。ゲームのルールそのものは説明しません。</p>
+
+<!-- ------------------------------------------------------------ -->
+<h2 id="start">1. はじめに</h2>
+<p>作戦づくりから当日まで、次の流れで使います。</p>
+<ol class="flow">
+  <li><b>作る</b><span>エディタで、プレイヤーごとの列に戦闘を並べます。自動作成も使えます。</span></li>
+  <li><b>確かめる</b><span>予定スコア、到達 Lv、スタッツ、クリティカルパスを見て直します。</span></li>
+  <li><b>共有する</b><span>共有URL、テキスト、チャート画像でメンバーに配ります。</span></li>
+  <li><b>当日</b><span>進行管理で討伐を記録し、出撃のタイミングを全員で合わせます。</span></li>
+</ol>
+<div class="note">まず触ってみるなら、戦闘が 1 つもないエディタに出る <span class="ui">サンプルを開く</span> を押してください。架空の 20 人の作戦が読み込まれます。<span class="ui">↶ 元に戻す</span> で読み込む前に戻せます。</div>
+
+<h3>予定スコアの計算の仕組み</h3>
+<p>エディタで戦闘を動かすたびに、作戦全体をサーバーで計算し直します。各ボスの撃破時刻から、どの戦闘が何階 (Lv) で行われるかが決まり、Lv から各戦闘のスコアが決まります。そのため、1 つの戦闘を動かすと、ほかのプレイヤーの戦闘の Lv やスコアも変わることがあります。</p>
+
+<!-- ------------------------------------------------------------ -->
+<h2 id="screen">2. エディタの画面</h2>
+<table>
+  <tr><th>上部のツールバー</th><td>新規、テキストを開く、元に戻す・やり直す、自動作成、スタッツ、表示の倍率、予定スコアの合計、共有URL、進行管理、画像生成。</td></tr>
+  <tr><th>タイムライン (中央)</th><td>1 列が 1 プレイヤーです。上が開始 (0:00)、下が 60 分後です。目盛りの細い線は 1 分、黄色は 5 分、紫は 30 分ごとです。</td></tr>
+  <tr><th>右のパネル</th><td><span class="ui">選択</span> タブには、選んだ戦闘やプレイヤーの詳細が出ます。<span class="ui">設定</span> タブには、作戦全体の設定があります。<span class="ui">テキスト</span> タブには、作戦のテキスト版があります。パネルの幅は左端をドラッグして変えられます。</td></tr>
+</table>
+
+<h3>戦闘ブロックの見方</h3>
+<ul>
+  <li>色の付いた部分が戦闘で、色はボスの属性色です。その下の灰色の部分が、次に出撃できるまでのクールタイムです。</li>
+  <li>文字は最大 3 行です。1 行目は戦闘の開始〜終了時刻、2 行目はボス・戦闘秒数・割合 (100% 未満のときだけ)、3 行目はその戦闘の Lv とスコアです。</li>
+  <li>割合が 100% 未満の戦闘には市松模様が付きます。</li>
+  <li>🔒 はロック、📝 は注意点があることを表します。<span class="crit">紫の帯</span> はクリティカルパスです (<a href="#check">7 章</a>)。</li>
+</ul>
+
+<!-- ------------------------------------------------------------ -->
+<h2 id="blocks">3. 戦闘を置く・動かす</h2>
+<h3>追加・選択・削除</h3>
+<ul>
+  <li><b>追加:</b> 列の空いている場所をダブルクリックすると、その時刻に戦闘が入ります。</li>
+  <li><b>選択:</b> ブロックをクリックします。右のパネルで、ボス、開始時刻、待機時間、戦闘秒数、割合を数値で直せます。</li>
+  <li><b>削除:</b> 選んで <kbd>Delete</kbd> か <kbd>Backspace</kbd> を押します。</li>
+  <li><b>ボスの変更:</b> 右クリックするたびに 1st → 2nd → 3rd → Realm と切り替わります。選んで <kbd>1</kbd>〜<kbd>4</kbd> を押すと直接選べます。</li>
+  <li><b>戦闘秒数:</b> 戦闘部分の下端をドラッグします。</li>
+</ul>
+
+<h3>ドラッグはスライドパズル</h3>
+<p>ブロックを上下にドラッグすると、隙間がある間はそのブロックだけが動きます。隣のブロックに当たると押して一緒に動かし、押されたブロックはその位置に残ります。同じプレイヤーの戦闘はクールタイムの分だけ間隔が必要なので、重なることはありません。</p>
+<p>選んだブロックは <kbd>↑</kbd> <kbd>↓</kbd> で 1 秒ずつ、<kbd>Shift</kbd> を押しながらだと 10 秒ずつ動かせます。押し方はドラッグと同じです。</p>
+
+<h3>ロック</h3>
+<p>選んで <kbd>L</kbd> を押す (またはパネルのチェックを入れる) と、ブロックが固定されます (🔒、点線の枠)。ロックしたブロックはほかのブロックに押されても動かず、押す側がその手前で止まります。決まった時刻に出たい戦闘に使ってください。</p>
+
+<h3>スナップ (吸着)</h3>
+<p>ドラッグ中やダブルクリックで追加するときは、意味のある時刻の近くに来ると吸い寄せられ、水色の線と理由が表示されます。吸着先は次のとおりです。</p>
+<ul>
+  <li>1st / 2nd / 3rd: ほかの列の 1st / 2nd / 3rd の開始 (同時出撃)、各階の Realm 撃破 + 余裕 (次の階が開いた時刻)</li>
+  <li>Realm: その階の 1st / 2nd / 3rd がすべて倒れた時刻 + 余裕</li>
+</ul>
+<p>余裕の秒数は <span class="ui">設定</span> → <span class="ui">スナップの余裕(秒)</span> で変えられます (既定は 6 秒)。<kbd>Alt</kbd> を押しながらドラッグすると吸着しません。</p>
+
+<h3>複数選択</h3>
+<ul>
+  <li><kbd>Ctrl</kbd>+クリックで 1 つずつ追加・解除します。<kbd>Shift</kbd>+クリックで、同じ列の範囲をまとめて選びます。</li>
+  <li><kbd>Esc</kbd> を押すか、列の空いた場所をクリックすると解除します。</li>
+  <li>ボスの変更、ロック、戦闘秒数、割合、削除は、選んだブロックすべてに効きます。</li>
+  <li>ドラッグや <kbd>↑</kbd> <kbd>↓</kbd> では、選んだブロックが間隔を保ったまま一緒に動きます。どれか 1 つがロックや端に当たると、全体が止まります。</li>
+</ul>
+
+<h3>元に戻す</h3>
+<p><kbd>Ctrl</kbd>+<kbd>Z</kbd> で元に戻し、<kbd>Ctrl</kbd>+<kbd>Y</kbd> でやり直します。ツールバーのボタンでも同じです。サンプルの読み込み、自動作成、共有URLを開くといったまとめての変更も、1 回で戻せます。</p>
+
+<!-- ------------------------------------------------------------ -->
+<h2 id="players">4. プレイヤーと設定</h2>
+<ul>
+  <li>列は常に 20 人分あります。列の見出しをクリックすると、<span class="ui">選択</span> タブで表示名と ID を変えたり、<span class="ui">← 左へ</span> <span class="ui">右へ →</span> で並びを変えたりできます。</li>
+  <li>名前も戦闘もない列は、作戦のテキストには書き出されません。</li>
+  <li>ID の末尾 2 文字を除いた部分がチーム名になります (例: <code>Alpha01</code> はチーム Alpha)。チャート画像のチーム色に使われます。</li>
+</ul>
+<p><span class="ui">設定</span> タブで変えられるもの:</p>
+<ul>
+  <li><b>全般:</b> コメント (画像に入る)、ゲームの開始時刻 (進行管理で使う)、スナップの余裕、クリティカルパスの強調。</li>
+  <li><b>ボス:</b> 各ボスの属性色と、画像に表示するアイコン。アイコンはサムネイルをクリックして選びます。</li>
+  <li><b>表示:</b> 画像に描くもの (チーム名、ボス画像、有利属性) と、時刻を残り時間で表示するか。</li>
+  <li><b>全体の注意点:</b> 次の章を見てください。</li>
+</ul>
+
+<!-- ------------------------------------------------------------ -->
+<h2 id="notes">5. 注意点</h2>
+<p>当日に気をつけることを作戦に書き込めます。注意点はチャート画像には描かれず、進行管理で表示・通知されます。</p>
+<ul>
+  <li><b>戦闘の注意点:</b> ブロックを 1 つだけ選び、パネルの欄に書きます。ブロックには 📝 が付きます。進行管理では、その戦闘の出撃が近づくと表示され、Discord の呼び出しにも添えられます。</li>
+  <li><b>全体の注意点:</b> <span class="ui">設定</span> → <span class="ui">全体の注意点</span> で、時間帯と文を指定します。タイムラインの目盛りにピンクの帯で表示されます。進行管理ではその時間帯の間だけ表示され、開始時刻に Discord へ送られます。</li>
+</ul>
+<p>どちらも 1 行・200 文字までです。</p>
+
+<!-- ------------------------------------------------------------ -->
+<h2 id="auto">6. 自動作成 β</h2>
+<p><span class="ui">自動作成 β</span> を押すと、プレイヤーごとの強さから作戦の案を作ります。</p>
+<ol>
+  <li>プレイヤーごとに、Realm を担当できる範囲と、撃破役・稼ぎ役として与えられる割合 (%) を入れます。名前のあるプレイヤーがいなければ、仮の名前で作ります。</li>
+  <li>探索時間を選んで <span class="ui">作成</span> を押します。ブラウザの中でたくさんの案を試し、いちばんスコアの高い案を選びます。<span class="ui">中止</span> を押すと、そこまでの最良の案を使えます。</li>
+  <li>できた案で今のブロックがすべて置き換わります (1 回の「元に戻す」で戻せます)。名前、設定、全体の注意点は残り、ロックと戦闘の注意点は消えます。</li>
+</ol>
+<p>入力した強さはこのブラウザにだけ保存され、作戦には書き込まれません。できた案は出発点として、手で直して仕上げてください。</p>
+
+<!-- ------------------------------------------------------------ -->
+<h2 id="check">7. スタッツとクリティカルパス</h2>
+<h3>スタッツ</h3>
+<p><span class="ui">スタッツ</span> を押すと、作戦の分析が開きます。</p>
+<ul>
+  <li>予定スコア、到達 Lv、戦闘数、空き枠</li>
+  <li>層域 (Lv1–5、6–10 など) ごとの戦闘数とスコア</li>
+  <li>予定スコアの推移のグラフ</li>
+  <li><b>撃破後の出撃:</b> ボスが倒れた後に出撃する予定の戦闘です。計算上はスコアに入りますが、実際には出撃できません。</li>
+  <li>階ごとの撃破時刻、プレイヤーごとの出撃回数と空き枠</li>
+</ul>
+<p>一覧の項目をクリックすると、そのブロックに移動します。</p>
+
+<h3>クリティカルパス</h3>
+<p>ボスを倒す戦闘の撃破が少し遅れたら予定スコアがどれだけ減るかを、ブロックごとに計算します。後の出撃は、進行管理と同じ規則で連鎖してずれます。</p>
+<ul>
+  <li>10 秒の遅れでスコアが減る撃破には、<span class="crit">紫の帯</span> が付きます。減り方が大きいものは太く光る帯になります。</li>
+  <li>ブロックにマウスを載せるかブロックを選ぶと、10 秒と 30 秒の遅れでいくら減るか、何回の出撃がずれるかが表示されます。</li>
+  <li>余裕を厚くしたり、強い人を担当にしたりする候補の目安にしてください。表示は <span class="ui">設定</span> → <span class="ui">クリティカルパスを強調する</span> で消せます。</li>
+</ul>
+
+<!-- ------------------------------------------------------------ -->
+<h2 id="share">8. 保存と共有</h2>
+<table>
+  <tr><th>自動保存</th><td>編集中の作戦は、このブラウザに自動で保存されます。ページを閉じても、同じブラウザで開けば続きから編集できます。ほかの PC やブラウザには引き継がれません。</td></tr>
+  <tr><th>テキスト</th><td><span class="ui">テキスト</span> タブに、作戦をテキストにしたものが出ます。<span class="ui">テキストを保存</span> でファイル (<code>日付.txt</code>) に保存し、<span class="ui">テキストを開く</span> で読み込めます。テキストを直接書き換えて <span class="ui">テキストを反映</span> で取り込むこともできます。作戦の正本はこのテキストです。</td></tr>
+  <tr><th>共有URL</th><td>作戦をまるごと URL の中に圧縮して入れ、コピーします。受け取った人が開くと、その人のエディタに作戦が読み込まれます。作戦はサーバーに保存されません。URL が途中で切れると開けないので、全体を貼ってください。</td></tr>
+  <tr><th>画像生成</th><td>チャート画像 (PNG) を作ります。プレビューから <span class="ui">PNG をダウンロード</span> で保存できます。</td></tr>
+</table>
+
+<!-- ------------------------------------------------------------ -->
+<h2 id="tracker">9. 進行管理</h2>
+<p>当日、ボスの討伐を記録して、各プレイヤーの出撃のタイミングを全員で合わせる画面です。同じ URL を開いているすべての端末で、状態が約 1 秒ごとに同期します。</p>
+
+<h3>始め方</h3>
+<ol>
+  <li>エディタで <span class="ui">進行管理 β</span> を押すと、今の作戦を持って準備画面が別タブで開きます (テキストを貼り付けて始めることもできます)。</li>
+  <li>開始日と開始時刻を確かめます。開始時刻は作戦の <span class="ui">設定</span> → <span class="ui">開始時刻</span> から入ります。</li>
+  <li>必要なら Discord の Webhook URL を入れます (下の「Discord 通知」)。</li>
+  <li><span class="ui">セッションを作成</span> を押すと、セッションのページに移ります。<span class="ui">URL をコピー</span> で、ほかの操作者に共有してください。</li>
+</ol>
+
+<h3>討伐ボタンと出撃の見込み</h3>
+<ul>
+  <li>ボスが倒れたら、そのボスの討伐ボタンを押します。誤って押したら <span class="ui">直前の討伐を取り消す</span> で戻せます。ボタンは今の階で押せるものだけが有効です。ほかの端末とほぼ同時に押しても、二重には記録されません。</li>
+  <li><b>挑戦中・次に出撃:</b> 時計ではなく、討伐ボタンの記録をもとに計算します。各戦闘の出撃見込みは、次のうち最も遅い時刻です。
+    <ul>
+      <li>作戦の出撃時刻</li>
+      <li>前の出撃からのクールタイム明け</li>
+      <li>前に挑んだボスの撃破と、挑むボスが開く時刻 (どちらも、作戦にあった余裕の分をあけます)</li>
+    </ul>
+    撃破が遅れれば、後の出撃も自動で後ろにずれます。待っているボスがまだ倒れていないときは「討伐待ち」「開放待ち」と表示されます。</li>
+  <li><b>作戦との差:</b> 撃破の遅れ (赤) や早まり (緑) です。予定スコアは、終わった戦闘の分だけを足したものです。</li>
+</ul>
+
+<h3>出撃タイマーと補正</h3>
+<p>プレイヤーごとのカードに、次に出撃できるまでの残り時間が出ます。0 になると緑の「出撃可能」に変わり、次に挑むボスが表示されます。</p>
+<p>実際の出撃が見込みとずれたときは、カードを押して補正します。<span class="ui">出撃可能にする</span> で残りを 0 にでき、±1〜60 秒のボタンで残りを合わせられます。補正は全端末で共有され、そのプレイヤーの後の出撃の見込みにも反映されます。補正した戦闘には ✎ が付きます。</p>
+
+<h3>注意点の表示</h3>
+<p>戦闘の注意点は出撃が近づいてから戦闘中まで、全体の注意点は指定した時間帯の間、<span class="ui">挑戦中</span> の上に表示されます。</p>
+
+<h3>Discord 通知 (任意)</h3>
+<ul>
+  <li>準備画面で Webhook URL を入れると、出撃の少し前 (既定 30 秒前) に「○○、△△、準備して下さい」を Discord に送ります。同時に出撃する人はまとめて呼びます。</li>
+  <li>呼び出しは、前のボスの討伐を待たずに作戦どおりの時刻で送ります。出撃したら、そのメッセージは消されます。</li>
+  <li><span class="ui">読み上げる (TTS)</span> がオンなら読み上げメッセージ、オフなら普通のテキストです。読み上げを聞けるのは、PC 版の Discord でそのチャンネルを開いていて、読み上げの再生を許可している人だけです。</li>
+  <li>通知は、進行管理のページを誰かが開いている間だけ送られます (サーバーは自分では送りません)。</li>
+  <li>進行が大きく狂ったときは <span class="ui">通知を止める</span> で全端末の通知を止められます。</li>
+</ul>
+
+<h3>作戦チャートと終了</h3>
+<ul>
+  <li>ページの下に作戦のチャート画像が出ます。今の時刻の線、挑戦中 (点滅)、終わった戦闘 (暗く)、次に出撃 (点線) が重ねて表示されます。クリックすると、幅に合わせる表示と実寸が切り替わります。</li>
+  <li>終わったら <span class="ui">セッションを破棄</span> で消せます。すべての端末で進行管理が終わり、残っている Discord のメッセージも消えます。破棄しなくても、作成から 24 時間で自動的に消えます。</li>
+</ul>
+
+<!-- ------------------------------------------------------------ -->
+<h2 id="personal">10. 個人ビュー</h2>
+<p>プレイヤー向けの、自分の出撃だけを大きく表示する閲覧専用の画面です。スマホでの確認に向いています。</p>
+<ul>
+  <li>進行管理のヘッダーの <span class="ui">個人ビュー</span> から、プレイヤーごとの URL を開いたりコピーしたりできます。<span class="ui">全員分をコピー</span> でまとめて配れます。</li>
+  <li>表示されるもの: 自分の挑戦中、次の出撃までの時間、自分の戦闘の一覧、自分に関係する注意点。</li>
+  <li>討伐ボタンや補正はなく、Discord 通知も送りません。進行は操作者の端末の討伐ボタンに合わせて更新されます。</li>
+</ul>
+
+<!-- ------------------------------------------------------------ -->
+<h2 id="faq">11. よくある質問</h2>
+<dl>
+  <dt>作戦はどこに保存されますか？</dt>
+  <dd>エディタで編集中の作戦は、使っているブラウザの中だけに保存されます。ブラウザのデータを消すと消えるので、大事な作戦は <span class="ui">テキストを保存</span> でファイルにも残してください。</dd>
+
+  <dt>共有URL の作戦はサーバーに残りますか？</dt>
+  <dd>残りません。作戦は URL の <code>#</code> より後ろに入っていて、この部分はブラウザからサーバーに送られません。</dd>
+
+  <dt>別の PC で続きを編集したい</dt>
+  <dd>共有URL を自分に送るか、テキストを保存して別の PC で <span class="ui">テキストを開く</span> で読み込んでください。</dd>
+
+  <dt>進行管理の URL は誰でも見られますか？</dt>
+  <dd>URL を知っている人だけが開けます。URL には推測できない長い ID が入っていて、それが唯一の鍵です。URL を知っている人は討伐ボタンも押せるので、信頼できる人にだけ共有してください。</dd>
+
+  <dt>進行管理のセッションはいつまで使えますか？</dt>
+  <dd>作成から 24 時間です。延長はできないので、次の回は新しく作成してください。</dd>
+
+  <dt>Discord の読み上げが聞こえない</dt>
+  <dd>PC 版の Discord でそのチャンネルを開いているか、読み上げの再生を許可しているかを確かめてください。スマホ版の Discord は読み上げません。また、進行管理のページを誰も開いていないと通知は送られません。</dd>
+
+  <dt>間違えて作戦を消してしまった</dt>
+  <dd>同じページで <span class="ui">↶ 元に戻す</span> (<kbd>Ctrl</kbd>+<kbd>Z</kbd>) を押してください。新規作成、テキストの読み込み、自動作成なども元に戻せます。</dd>
+</dl>
+</main>
+</div>
+</body>
+</html>
