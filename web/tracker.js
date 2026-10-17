@@ -4,6 +4,10 @@
 
 const REGULAR = BOSSES.slice(0, 3);
 const POLL_MS = 1000;
+// 作戦の前後 (開始 10 分前より前、終了 30 分後より後) と、隠れた個人ビューはポーリングを遅くする。
+// 閉じ忘れたタブが Firestore を毎秒読み続けないように
+const IDLE_POLL_MS = 10000;
+const IDLE_BEFORE = 600, IDLE_AFTER = 1800;
 const TICK_MS = 200;
 // 作戦画像 (ChartLib の固定レイアウト): 列の左端 120 + i*246、幅 240、y = 秒 + 160
 const CHART_X0 = 120, CHART_COL = 246, CHART_COL_W = 240, CHART_TOP = 160;
@@ -24,6 +28,7 @@ let ui = {};               // 作り置きの要素
 let notifyPaused = false;  // 全端末共通の Discord 通知の停止 (サーバーに保存)
 let ended = false;         // セッションが破棄された (または見つからない)
 let tickTimer = null;
+let pollTimer = null;      // 次のポーリングを待っている間だけ setTimeout の id
 const notifySent = new Set(); // この端末から Discord 通知を頼んだ戦闘 (plan.detail の添字)
 const notifyCleared = new Set(); // そのうち、出撃したので通知の削除を頼んだ戦闘
 const noteSent = new Set();     // この端末から Discord 通知を頼んだ全体の注意点 (plan.notes の添字)
@@ -772,14 +777,31 @@ function applyResponse(j) {
   lastSync = Date.now();
 }
 
+function pollDelay() {
+  if (!plan) return POLL_MS;
+  const now = elapsed();
+  if (now < -IDLE_BEFORE || now > CHART_SEC + IDLE_AFTER) return IDLE_POLL_MS;
+  // 全体ボードは隠れていても Discord 通知を頼むので、作戦中は毎秒のまま
+  if (document.hidden && personal) return IDLE_POLL_MS;
+  return POLL_MS;
+}
+
 async function poll() {
+  pollTimer = null;
   try {
     applyResponse(await api("GET", `/api/sessions/${sessionId()}?since=${plan ? version : 0}`));
   } catch (e) {
     if (e.status === 404) { endSession(plan ? "このセッションは破棄されました（または期限切れです）" : e.message); return; }
   }
-  setTimeout(poll, POLL_MS);
+  pollTimer = setTimeout(poll, pollDelay());
 }
+
+// 遅いポーリングの途中で表示されたら、待たずに取りに行く
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || ended || pollTimer === null) return;
+  clearTimeout(pollTimer);
+  poll();
+});
 
 async function act(path, body) {
   busy = true;
@@ -819,6 +841,7 @@ async function discard() {
 function endSession(msg) {
   ended = true;
   clearInterval(tickTimer);
+  clearTimeout(pollTimer);
   for (const id of ["#board", "#btn-share", "#btn-end", "#btn-notify", "#notify", "#btn-people", "#btn-board", "#btn-review"]) $(id).hidden = true;
   if ($("#review-dialog").open) $("#review-dialog").close();
   clearTimeout(showStatus.timer);

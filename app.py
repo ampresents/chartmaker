@@ -578,12 +578,23 @@ def api_session_notify(sid):
     notes = list(dict.fromkeys(notes))
     result = {}
 
-    def apply(doc):
+    def check(doc):
         if not doc.get("discord"):
             raise Conflict("Discord 通知は設定されていません")
         if (not all(0 <= b < len(doc["plan"]["detail"]) for b in battles)
                 or not all(0 <= n < len(doc["plan"].get("notes", [])) for n in notes)):
             raise InputError("不正な指定です")
+
+    # 全端末が同じ戦闘を頼んでくるので、すべて通知済みなら書き込まない (version を上げない)。
+    # 通知済みの記録は増えるだけなので、少し古いキャッシュで判断しても送り漏れはない
+    doc = store.get(sid)
+    check(doc)
+    if (all(b in doc["notified"] for b in battles)
+            and all(n in doc.get("notes_notified", []) for n in notes)):
+        return jsonify(version=doc["version"], sent=[], notes=[], server_now=now_ms())
+
+    def apply(doc):
+        check(doc)
         # Firestore のトランザクションは再実行されることがあるので、毎回決め直す
         if doc.get("notify_paused"):
             result["sent"] = result["notes"] = []  # 止めている間は送らず、通知済みにもしない

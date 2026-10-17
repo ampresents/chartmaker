@@ -9,7 +9,7 @@ import secrets
 import threading
 import time
 
-SESSION_TTL = 24 * 3600  # 作成からこの秒数で失効 (延長しない)。Firestore の実体は expire_at の TTL ポリシーで後から消える
+SESSION_TTL = 5 * 3600  # 作成からこの秒数で失効 (延長しない)。Firestore の実体は expire_at の TTL ポリシーで後から消える
 CACHE_TTL = 1.0  # CachedStore が get の結果を使い回す秒数
 
 

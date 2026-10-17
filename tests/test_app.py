@@ -338,6 +338,16 @@ def test_notify_sends_once(client, sent):
     assert len(sent) == 2
 
 
+def test_notify_already_sent_does_not_write(client, sent):
+    sid = create_notify_session(client)
+    notify(client, sid, 0, 1)
+    version = client.get("/api/sessions/" + sid).json["version"]
+    r = notify(client, sid, 1, 0)  # 別の端末から同じまとまり
+    assert r.status_code == 200 and r.json["sent"] == [] and r.json["version"] == version
+    assert client.get("/api/sessions/" + sid).json["version"] == version
+    assert notify(client, sid, 99).status_code == 400  # 検査は書き込まないときも行う
+
+
 def test_notify_without_tts(client, sent):
     # 読み上げをオフにすると、同じ本文をただのテキストとして送る
     sid = create_notify_session(client, notify_tts=False)
