@@ -1159,45 +1159,237 @@ function download(name, blob) {
 }
 
 // ---------------------------------------------------------------- 共有 URL
-// 作戦の txt を deflate して base64url にし、URL の #plan= に入れる。
-// ハッシュはサーバーに送られないので、共有してもサーバーには何も残らない
+// 作戦を deflate して base64url にし、URL のハッシュに入れる。
+// ハッシュはサーバーに送られないので、共有してもサーバーには何も残らない。
+//   #p=    状態をバイナリに詰めたもの (encodeState)。txt より短い
+//   #plan= txt をそのまま deflate したもの。古い共有URLと、#p= で元に戻らない作戦に使う
 
-const SHARE_PREFIX = "#plan=";
+const SHARE_PREFIX = "#p=";
+const SHARE_PREFIX_TEXT = "#plan=";
+const SHARE_VERSION = 2;
+// 並びは符号の一部なので、足すときは末尾に足す
+const SHARE_COLORS = ["blue", "red", "green", "yellow", "white"];
+const SHARE_FLAGS = ["display_team", "display_boss", "display_party", "display_remaining"];
+const SHARE_IMAGE = /^\/image\/(.*)\.png$/;
 
 async function pipeBytes(bytes, stream) {
   return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
 }
 
-async function encodePlan(text) {
-  const bytes = await pipeBytes(new TextEncoder().encode(text), new CompressionStream("deflate-raw"));
+async function deflateCode(bytes) {
+  bytes = await pipeBytes(bytes, new CompressionStream("deflate-raw"));
   let bin = "";
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-async function decodePlan(code) {
+async function inflateCode(code) {
   const bin = atob(code.replace(/-/g, "+").replace(/_/g, "/"));
-  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(await pipeBytes(bytes, new DecompressionStream("deflate-raw")));
+  return pipeBytes(Uint8Array.from(bin, (c) => c.charCodeAt(0)), new DecompressionStream("deflate-raw"));
+}
+
+// バイト列の書き手。数は varint (負になりうるものは zigzag)、文字列は長さ + UTF-8
+function shareWriter() {
+  const bytes = [];
+  const w = {
+    bytes,
+    byte(n) { bytes.push(n & 0xff); },
+    uint(n) {
+      if (!Number.isSafeInteger(n) || n < 0) throw new Error(`bad number ${n}`);
+      for (; n >= 0x80; n = Math.floor(n / 0x80)) bytes.push((n % 0x80) | 0x80);
+      bytes.push(n);
+    },
+    int(n) { w.uint(n < 0 ? -2 * n - 1 : 2 * n); },
+    str(s) { const b = new TextEncoder().encode(String(s ?? "")); w.uint(b.length); bytes.push(...b); },
+  };
+  return w;
+}
+
+function shareReader(bytes) {
+  let pos = 0;
+  const r = {
+    byte() { if (pos >= bytes.length) throw new Error("truncated"); return bytes[pos++]; },
+    uint() {
+      let n = 0;
+      for (let mul = 1; ; mul *= 0x80) {
+        const b = r.byte();
+        n += (b & 0x7f) * mul;
+        if (b < 0x80) return n;
+        if (mul > 2 ** 42) throw new Error("bad number");
+      }
+    },
+    int() { const n = r.uint(); return n % 2 ? -(n + 1) / 2 : n / 2; },
+    str() {
+      const len = r.uint();
+      if (pos + len > bytes.length) throw new Error("truncated");
+      const s = new TextDecoder().decode(bytes.subarray(pos, pos + len));
+      pos += len;
+      return s;
+    },
+    done() { return pos === bytes.length; },
+  };
+  return r;
+}
+
+// 状態を toText() が書く内容だけに絞ってバイト列にする。戦闘は列ごと (待機秒、ボスと印、戦闘秒、…) に並べると
+// 同じ値が続いて deflate がよく縮む
+function encodeState(st) {
+  const c = st.constants;
+  const w = shareWriter();
+  w.byte(SHARE_VERSION);
+  w.str(c.comment);
+  w.str(validStartTime(c.start_time) ? c.start_time : "");
+  w.int(timelag(st));
+  for (const b of BOSSES) {
+    const i = SHARE_COLORS.indexOf(c[b]);
+    w.byte(i + 1);
+    if (i < 0) w.str(c[b]);
+  }
+  for (const b of BOSSES) {
+    const m = String(c[IMAGE_KEYS[b]] ?? "").match(SHARE_IMAGE);
+    w.byte(m ? 1 : 0);
+    w.str(m ? m[1] : c[IMAGE_KEYS[b]]);
+  }
+  w.byte(SHARE_FLAGS.reduce((bits, f, i) => bits | (c[f] ? 1 << i : 0), 0));
+  w.uint(st.extras.length);
+  for (const [k, v] of st.extras) {
+    w.str(k);
+    w.byte(v === null ? 0 : 1);
+    if (v !== null) w.str(v);
+  }
+  const ranges = (st.notes || []).filter((n) => noteText(n.text) && n.start < n.end);
+  w.uint(ranges.length);
+  for (const n of ranges) {
+    w.uint(n.start);
+    w.uint(n.end - n.start);
+    w.str(noteText(n.text));
+  }
+  const players = st.players.filter((p) => p.name || p.actions.length);
+  w.uint(players.length);
+  for (const p of players) {
+    w.str(p.id);
+    w.str(p.name);
+    w.uint(p.actions.length);
+  }
+  const len = blockLen(st);
+  const acts = [];
+  for (const p of players) {
+    let prevEnd = 0;
+    for (const a of p.actions) {
+      acts.push({ wait: a.start - prevEnd, a });
+      prevEnd = a.start + len;
+    }
+  }
+  // ボス (2 bit) と、割合・ロック・注意点の有無を 1 バイトに詰める
+  for (const { wait } of acts) w.int(wait);
+  for (const { a } of acts) {
+    w.byte(BOSSES.indexOf(a.boss) | (a.rate !== 1 ? 4 : 0) | (a.locked ? 8 : 0) | (noteText(a.note) ? 16 : 0));
+  }
+  for (const { a } of acts) w.uint(a.battle);
+  for (const { a } of acts) if (a.rate !== 1) w.str(a.rate);
+  for (const { a } of acts) if (noteText(a.note)) w.str(noteText(a.note));
+  return new Uint8Array(w.bytes);
+}
+
+// encodeState の逆。toText() に渡せる形の状態を返す
+function decodeState(bytes) {
+  const r = shareReader(bytes);
+  if (r.byte() !== SHARE_VERSION) throw new Error("unknown version");
+  const constants = { comment: r.str(), start_time: r.str(), timelag: String(r.int()) };
+  for (const b of BOSSES) {
+    const i = r.byte() - 1;
+    constants[b] = i < 0 ? r.str() : SHARE_COLORS[i];
+    if (constants[b] === undefined) throw new Error("bad color");
+  }
+  for (const b of BOSSES) {
+    const short = r.byte();
+    const s = r.str();
+    constants[IMAGE_KEYS[b]] = short ? `/image/${s}.png` : s;
+  }
+  const bits = r.byte();
+  SHARE_FLAGS.forEach((f, i) => { constants[f] = !!(bits & (1 << i)); });
+  const extras = [];
+  for (let n = r.uint(); n > 0; n--) {
+    const k = r.str();
+    extras.push([k, r.byte() ? r.str() : null]);
+  }
+  const notes = [];
+  for (let n = r.uint(); n > 0; n--) {
+    const start = r.uint();
+    notes.push({ start, end: start + r.uint(), text: r.str() });
+  }
+  const players = [];
+  const counts = [];
+  for (let n = r.uint(); n > 0; n--) {
+    players.push({ id: r.str(), name: r.str(), actions: [] });
+    counts.push(r.uint());
+  }
+  const st = { constants, extras, notes, players };
+  const total = counts.reduce((s, n) => s + n, 0);
+  if (total > MAX_PLAYERS * 100) throw new Error("too many battles");
+  const acts = Array.from({ length: total }, () => ({}));
+  for (const a of acts) a.wait = r.int();
+  for (const a of acts) {
+    const b = r.byte();
+    a.boss = BOSSES[b & 3];
+    a.rated = !!(b & 4);
+    a.locked = !!(b & 8);
+    a.noted = !!(b & 16);
+  }
+  for (const a of acts) a.battle = r.uint();
+  for (const a of acts) a.rate = a.rated ? Number(r.str()) : 1;
+  for (const a of acts) if (a.noted) a.note = r.str();
+  if (!r.done()) throw new Error("trailing bytes");
+  const len = blockLen(st);
+  let k = 0;
+  players.forEach((p, i) => {
+    let prevEnd = 0;
+    for (let n = 0; n < counts[i]; n++, k++) {
+      const { wait, boss, battle, rate, locked, note } = acts[k];
+      const start = prevEnd + wait;
+      p.actions.push({ start, boss, battle, rate, ...(locked && { locked }), ...(note && { note }) });
+      prevEnd = start + len;
+    }
+  });
+  return st;
+}
+
+// 共有URLのハッシュ部分。#p= で同じ txt に戻らない作戦 (想定外の値が入っているもの) は #plan= にする
+async function encodePlan(st = state) {
+  const text = toText(st);
+  try {
+    const code = await deflateCode(encodeState(st));
+    if (toText(decodeState(await inflateCode(code))) === text) return SHARE_PREFIX + code;
+  } catch (e) {
+    // #plan= にする
+  }
+  return SHARE_PREFIX_TEXT + await deflateCode(new TextEncoder().encode(text));
+}
+
+// ハッシュ (#p=… / #plan=…) から txt を作る。共有URLのハッシュでなければ null
+async function decodePlan(hash) {
+  if (hash.startsWith(SHARE_PREFIX)) return toText(decodeState(await inflateCode(hash.slice(SHARE_PREFIX.length))));
+  if (hash.startsWith(SHARE_PREFIX_TEXT)) return new TextDecoder().decode(await inflateCode(hash.slice(SHARE_PREFIX_TEXT.length)));
+  return null;
 }
 
 async function copyShareUrl() {
   const btn = $("#btn-share");
-  const url = `${location.origin}${location.pathname}${SHARE_PREFIX}${await encodePlan(toText())}`;
+  const url = `${location.origin}${location.pathname}${await encodePlan()}`;
   await navigator.clipboard.writeText(url);
   showStatus(null);
   btn.textContent = "コピーしました";
   setTimeout(() => { btn.textContent = "共有URL"; }, 1500);
 }
 
-// URL に #plan= があれば読み込み、ハッシュは消す (再読み込みで何度も取り込まないように)
+// URL に #p= / #plan= があれば読み込み、ハッシュは消す (再読み込みで何度も取り込まないように)
 async function loadSharedPlan() {
-  if (!location.hash.startsWith(SHARE_PREFIX)) return;
-  const code = location.hash.slice(SHARE_PREFIX.length);
+  const hash = location.hash;
+  if (!hash.startsWith(SHARE_PREFIX) && !hash.startsWith(SHARE_PREFIX_TEXT)) return;
   history.replaceState(null, "", location.pathname + location.search);
   let text;
   try {
-    text = await decodePlan(code);
+    text = await decodePlan(hash);
   } catch (e) {
     showStatus("共有URLの作戦を読み込めませんでした（URLが途中で切れている可能性があります）");
     return;
