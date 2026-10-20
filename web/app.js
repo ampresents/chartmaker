@@ -1406,13 +1406,21 @@ async function decodePlan(hash) {
   return null;
 }
 
-async function copyShareUrl() {
-  const btn = $("#btn-share");
+// Discord のマークダウンのリンク [コメント](URL)。コメント中の [ ] \ はエスケープし、空なら「作戦」
+function discordLink(url) {
+  const label = (state.constants.comment || "").trim().replace(/[\\[\]]/g, "\\$&") || "作戦";
+  return `[${label}](${url})`;
+}
+
+// discord = true なら Discord 用のリンク形式で、false なら URL だけをコピーする
+async function copyShareUrl(btn, discord) {
   const url = `${location.origin}${location.pathname}${await encodePlan()}`;
-  await navigator.clipboard.writeText(url);
+  await navigator.clipboard.writeText(discord ? discordLink(url) : url);
   showStatus(null);
+  btn.dataset.label ??= btn.textContent;
   btn.textContent = "コピーしました";
-  setTimeout(() => { btn.textContent = "共有URL"; }, 1500);
+  clearTimeout(btn.copyTimer);
+  btn.copyTimer = setTimeout(() => { btn.textContent = btn.dataset.label; }, 1500);
 }
 
 // URL に #p= / #plan= があれば読み込み、ハッシュは消す (再読み込みで何度も取り込まないように)
@@ -1467,7 +1475,10 @@ function bindUI() {
     try { localStorage.setItem("chartmaker.tracker.text", toText()); } catch (e) { /* 引き継げなくても画面は開く */ }
     window.open("/tracker", "_blank");
   });
-  $("#btn-share").addEventListener("click", () => copyShareUrl().catch((e) => showStatus(`共有URLを作れませんでした: ${e.message}`)));
+  for (const [id, discord] of [["#btn-share", false], ["#btn-share-discord", true]]) {
+    const btn = $(id);
+    btn.addEventListener("click", () => copyShareUrl(btn, discord).catch((e) => showStatus(`共有URLを作れませんでした: ${e.message}`)));
+  }
   // 開いたままのタブに別の共有URLを貼った場合
   window.addEventListener("hashchange", loadSharedPlan);
   $("#btn-close-modal").addEventListener("click", () => { $("#modal").hidden = true; });
