@@ -93,12 +93,15 @@ body.resizing { cursor: col-resize; user-select: none; }
 #timeline { display: flex; align-items: flex-start; min-width: max-content; padding-right: 20px; }
 .col { width: var(--col-w); flex: none; border-right: 1px solid #222; }
 .axis { width: 56px; flex: none; }
-.col-head { position: sticky; top: 0; z-index: 5; height: 48px; background: var(--panel);
+.col-head { position: sticky; top: 0; z-index: 5; height: 66px; background: var(--panel);
   border-bottom: 1px solid var(--line); text-align: center; padding: 3px 2px; cursor: pointer;
   overflow: hidden; white-space: nowrap; }
 .col-head.selected { background: var(--panel2); box-shadow: inset 0 -2px var(--accent); }
 .col-head .team { font-size: 11px; font-weight: bold; }
 .col-head .name { font-size: 14px; color: rgb(240, 180, 0); overflow: hidden; text-overflow: ellipsis; }
+.col-head .pscore { font-size: 12px; font-variant-numeric: tabular-nums; }
+.col-head .pbar { height: 3px; margin: 2px 6px 0; background: rgba(255, 255, 255, 0.08); }
+.col-head .pbar i { display: block; height: 100%; background: var(--accent); }
 .axis .col-head { cursor: default; }
 .col-body { position: relative; margin: 10px 0;
   background-image:

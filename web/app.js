@@ -512,9 +512,13 @@ function simulateFloors(exclude) {
 // - 1st/2nd/3rd: 他の列の 1st/2nd/3rd と同時出撃、または Realm 撃破で次の階が開いた snapMargin 秒後
 //   （calc_level は push_start > Realm 撃破 で数えるので、余裕 0 でも最低 1 秒あける）
 // - Realm: その階の 1st/2nd/3rd が 3 体とも撃破された snapMargin 秒後
-function snapCandidates(pi, boss, exclude) {
+// - どのボスでも: 同じ列で上にある戦闘 above（添字、なければ -1）のクールタイム終了の 1 秒後（押さずに止める位置）
+function snapCandidates(pi, boss, exclude, above = -1) {
   const floors = simulateFloors(exclude);
   const out = [];
+  if (above >= 0) {
+    out.push({ t: state.players[pi].actions[above].start + blockLen() + 1, label: "上の戦闘の 1秒後", src: [`${pi}:${above}`] });
+  }
   if (boss === "Realm_boss") {
     floors.forEach((f, n) => {
       if (!n || REGULAR_BOSSES.some((b) => !f.kills[b])) return;
@@ -554,7 +558,7 @@ function addActionAt(p, t, noSnap = false) {
   if (i < 0) i = acts.length;
   const prev = acts[i - 1] || acts[i];
   const boss = prev ? prev.boss : "1st_boss";
-  const s = noSnap ? null : snapTo(t, snapCandidates(p, boss, new Set()));
+  const s = noSnap ? null : snapTo(t, snapCandidates(p, boss, new Set(), i - 1));
   if (s) {
     t = s.t;
     i = acts.findIndex((a) => a.start > t);
@@ -682,6 +686,19 @@ function detailIndex() {
   return i === details.length ? map : new Map();
 }
 
+// 列ごとのスコア（画像下部の個人スコアと同じ集計）。details が古いときは null
+function playerScores(dmap = detailIndex()) {
+  if (!dmap.size) return null;
+  return state.players.map((p, pi) => p.actions.reduce((s, a, ai) => {
+    const d = dmap.get(`${pi}:${ai}`);
+    s.max += d.score;
+    s.est += d.est_score;
+    s.n++;
+    if (a.boss === "Realm_boss") s.realm++;
+    return s;
+  }, { max: 0, est: 0, n: 0, realm: 0 }));
+}
+
 function render() {
   const tl = $("#timeline");
   tl.style.setProperty("--min", `${60 * scale}px`);
@@ -707,17 +724,26 @@ function render() {
   });
   const cols = [h("div", { class: "axis" }, h("div", { class: "col-head" }), axisBody)];
   const selKeys = new Set(selectedBlocks().map((s) => `${s.p}:${s.a}`));
+  const scores = playerScores(dmap);
+  const topEst = scores ? Math.max(1, ...scores.map((s) => s.est)) : 1;
 
   state.players.forEach((p, pi) => {
     const selP = selection && selection.p === pi;
     const teamColor = CONFIG.team.team_color[teamOf(p.id)];
+    const sc = scores && scores[pi].n ? scores[pi] : null;
     const head = h("div", {
       class: "col-head" + (selP && selection.a === null ? " selected" : ""),
-      title: p.id,
+      title: p.id + (sc ? `\n見積もり ${fmt(sc.est)}${sc.est < sc.max ? ` / 最大 ${fmt(sc.max)}` : ""}（${sc.n} 回出撃）` : ""),
       onclick: () => { setSelection([]); selection = { p: pi, a: null }; render(); renderSide(); switchTab("select"); },
     },
     h("div", { class: "team", style: { color: teamColor ? bgr(teamColor) : "" } }, teamColor ? teamOf(p.id) : " "),
-    h("div", { class: "name" }, p.name || p.id));
+    h("div", { class: "name" }, p.name || p.id),
+    // 個人スコア（見積もり）と、いちばん高い人を 100% とした棒。色は画像下部の Est / Max と同じ
+    h("div", {
+      class: "pscore",
+      style: { color: sc ? bgr(CONFIG[sc.est < sc.max ? "estimate_score" : "max_score"].color) : "" },
+    }, sc ? fmt(sc.est) : " "),
+    h("div", { class: "pbar" }, sc ? h("i", { style: { width: `${sc.est / topEst * 100}%` } }) : null));
 
     const body = h("div", {
       class: "col-body",
@@ -809,9 +835,10 @@ function startDrag(e, pi, ai, mode) {
   const battle0 = a.battle;
   let moved = false;
   // 吸着先はつかんだ時点の配置から 1 回だけ求める（動かすブロック自身は根拠にしない）
-  const cands = mode === "move" && !groupLocked
-    ? snapCandidates(pi, a.boss, new Set((group ? multi : [{ p: pi, a: ai }]).map((x) => `${x.p}:${x.a}`)))
-    : [];
+  const exclude = new Set((group ? multi : [{ p: pi, a: ai }]).map((x) => `${x.p}:${x.a}`));
+  let above = ai - 1;
+  while (above >= 0 && exclude.has(`${pi}:${above}`)) above--;
+  const cands = mode === "move" && !groupLocked ? snapCandidates(pi, a.boss, exclude, above) : [];
   const tip = h("div", { class: "drag-tip", hidden: true });
   document.body.append(tip);
 
@@ -946,7 +973,13 @@ function renderSide() {
       mutate(() => { p.id = id; });
     };
 
+    const scores = playerScores();
+    const sc = scores && scores[pi];
+    const total = scores ? scores.reduce((s, x) => s + x.est, 0) : 0;
     parts.push(h("h3", {}, "プレイヤー"),
+      sc && sc.n ? h("p", { class: "hint" },
+        "スコア ", h("b", {}, fmt(sc.est)), sc.est < sc.max ? ` / 最大 ${fmt(sc.max)}` : "",
+        `（全体の ${total ? (sc.est / total * 100).toFixed(1) : 0}%）　出撃 ${sc.n} 回（Realm ${sc.realm} 回）`) : null,
       field("表示名", h("input", { value: p.name, placeholder: p.id, onchange: (e) => mutate(() => { p.name = sanitize(e.target.value).trim(); }) })),
       field("ID", h("input", { value: p.id, placeholder: "空欄なら表示名", onchange: applyId })),
       idHint(),
