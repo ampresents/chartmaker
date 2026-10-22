@@ -180,6 +180,15 @@ def icon():
     return send_from_directory(BASE_DIR, "icon.png")
 
 
+# 進行管理の URL はセッション id だけがアクセス制御なので、クローラーに辿らせない
+ROBOTS_TXT = "User-agent: *\nDisallow: /tracker\nDisallow: /api/\n"
+
+
+@app.get("/robots.txt")
+def robots():
+    return app.response_class(ROBOTS_TXT, mimetype="text/plain")
+
+
 @app.get("/image/<path:name>")
 def image(name):
     return send_from_directory(IMAGE_DIR, name)

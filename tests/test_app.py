@@ -79,6 +79,14 @@ def test_guide(client):
     assert "使い方" in r.get_data(as_text=True)
 
 
+def test_robots(client):
+    r = client.get("/robots.txt")
+    assert r.status_code == 200
+    assert r.mimetype == "text/plain"
+    lines = r.get_data(as_text=True).splitlines()
+    assert "Disallow: /tracker" in lines and "Disallow: /api/" in lines
+
+
 def test_sample_plan(client):
     # エディタの「サンプルを開く」が読む作戦。parse・detail・注意点 (進行管理) がすべて通ること
     r = client.get("/static/sample.txt")
