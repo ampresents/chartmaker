@@ -608,10 +608,11 @@ function render() {
   if (!personal) reviewRefresh();
 
   // 10 秒おきのポーリング中は、その間隔を待ってから遅れと見なす
-  const delay = pollDelay();
-  const stale = Date.now() - lastSync > delay + 5000;
+  // (delay という名前は遅れを求める関数 delay() と衝突し、render() 全体が ReferenceError になる)
+  const pollMs = pollDelay();
+  const stale = Date.now() - lastSync > pollMs + 5000;
   setText($("#sync"), stale ? "サーバーと同期できていません"
-    : delay === POLL_MS ? "同期中"
+    : pollMs === POLL_MS ? "同期中"
     : now < -IDLE_BEFORE ? "待機中（開始 10 分前から毎秒同期します）" : "待機中（10 秒ごとに同期）");
   $("#sync").classList.toggle("late-text", stale);
 }
