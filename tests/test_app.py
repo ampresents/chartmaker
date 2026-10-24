@@ -504,6 +504,14 @@ def test_parse_notes():
     assert app_module.parse_notes("A01,0,1st_boss,9\nB01,0,1st_boss,9\n#note b\n")[0] == {1: "b"}
 
 
+def test_parse_notes_inline():
+    # 行動行の末尾の注意点 (カンマを含んでよい)。直後の #note 行があればそちらで上書きする
+    text = "A01,0,1st_boss,9,lock,a, b\nA01,0,2nd_boss,9,0.5,unlock,c\n#note d\nA01,0,3rd_boss,9,unlock\n"
+    assert app_module.parse_notes(text)[0] == {0: "a, b", 1: "d"}
+    with pytest.raises(app_module.InputError):
+        app_module.parse_notes("A01,0,1st_boss,9,lock," + "x" * 201)
+
+
 @pytest.mark.parametrize("line", ["#note@900-600 x", "#note@0-3601 x", "#note@0-10 ", "#note@0-10 " + "x" * 201])
 def test_parse_notes_errors(client, line):
     with pytest.raises(app_module.InputError):

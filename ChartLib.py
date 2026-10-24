@@ -57,6 +57,26 @@ def format_clock(sec, remaining=False):
     sign = "-" if sec < 0 else ""
     return "{}{:02d}:{:02d}".format(sign, abs(sec)//60, abs(sec)%60)
 
+LOCK_WORDS = ("lock", "unlock")
+
+def split_action(line):
+    """行動行 ID,待ち秒,ボス,戦闘秒[,撃破率][,lock|unlock[,注意点]] を (先頭 5 項目, ロック, 注意点) に分ける。
+    ロックは True/False (書いていなければ None)。注意点はカンマを含めてよい (書いていなければ None)。
+    ロックと注意点はエディタ用でチャートには影響しない。lock/unlock でも数でもない 5・6 項目目は ValueError"""
+    item = line.split(",")
+    head, rest = item[:4], item[4:]
+    rate = "1.0"  # 見積もりはデフォルトでワンパン
+    if rest and rest[0].strip().lower() not in LOCK_WORDS:
+        rate = rest.pop(0)
+    lock = note = None
+    if rest and any(s.strip() for s in rest):
+        word = rest.pop(0).strip().lower()
+        if word not in LOCK_WORDS:
+            raise ValueError(line)
+        lock = word == "lock"
+        note = ",".join(rest).strip() or None
+    return tuple(head) + (rate,), lock, note
+
 def parse(text):
     chart = []
     constant = {}
@@ -71,11 +91,12 @@ def parse(text):
             constant[tokens[0]] = tokens[1] if len(tokens) > 1 else None
             continue
         # 行動の処理
-        item = tuple(line.split(","))
-        if len(item) <= 1:
+        if len(line.split(",")) <= 1:
             continue
-
-        item = item + ("1.0",)  # 見積もりはデフォルトでワンパン
+        try:
+            item, _, _ = split_action(line)
+        except ValueError:
+            raise Exception("[line:{}] {}".format(i+1, line))
         if len(item) < 5:
             raise Exception("[line:{}] {}".format(i+1, line))
 

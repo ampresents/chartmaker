@@ -54,9 +54,7 @@ Alpha02,186,3rd_boss,30
 Alpha02,22,3rd_boss,30
 Alpha02,22,3rd_boss,30
 Alpha03,28,2nd_boss,30
-Alpha03,20,Realm_boss,38
-#lock
-#note 最初の Realm。遅れると全体が遅れるので最優先
+Alpha03,20,Realm_boss,38,lock,最初の Realm。遅れると全体が遅れるので最優先
 Alpha03,0,Realm_boss,46
 Alpha03,0,Realm_boss,55
 Alpha03,22,Realm_boss,100,0.5

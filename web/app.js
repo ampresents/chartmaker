@@ -155,13 +155,26 @@ function stateFromParsed(commands, constants) {
   return st;
 }
 
-// ロックと戦闘の注意点は直前の行動行に付く「#lock」「#note 本文」コメント行として txt に残す。
-// 全体の注意点は「#note@開始秒-終了秒 本文」。どれも parse はコメントとして読み飛ばす
+// ロックと戦闘の注意点は行動行の末尾「,lock|unlock[,本文]」に書く (ChartLib.split_action)。
+// 直前の行動行に付く「#lock」「#note 本文」コメント行も読み、両方あればコメント行で上書きする。
+// 全体の注意点は「#note@開始秒-終了秒 本文」。コメント行は parse が読み飛ばす
 const LOCK_MARK = "#lock";
 const NOTE_MARK = "#note ";
 const RANGE_NOTE = /^#note@(\d+)-(\d+)(?: (.*))?$/;
+const LOCK_WORDS = ["lock", "unlock"];
 
-// txt のコメント行を読む。locked は「ID:何番目の行動か」の集合、notes はそのキー → 本文、ranges は全体の注意点
+// ChartLib.split_action の JS 版。行動行の末尾から {lock: true/false/null, note: 本文/null} を読む
+// (書式の誤りは /api/parse が先に弾くので、ここでは読めない項目を無視する)
+function splitAction(line) {
+  const rest = line.split(",").slice(4);
+  const isWord = (s) => LOCK_WORDS.includes(s.trim().toLowerCase());
+  if (rest.length && !isWord(rest[0])) rest.shift();
+  if (!rest.length || !isWord(rest[0])) return { lock: null, note: null };
+  const lock = rest.shift().trim().toLowerCase() === "lock";
+  return { lock, note: rest.join(",").trim() || null };
+}
+
+// txt のロックと注意点を読む。locked は「ID:何番目の行動か」の集合、notes はそのキー → 本文、ranges は全体の注意点
 // (行動行の判定は ChartLib.parse / app.py の parse_notes と同じ)
 function marksInText(text) {
   const locked = new Set();
@@ -189,6 +202,9 @@ function marksInText(text) {
     const id = item[0];
     count[id] = (count[id] || 0) + 1;
     last = `${id}:${count[id] - 1}`;
+    const { lock, note } = splitAction(line);
+    if (lock) locked.add(last);
+    if (noteText(note)) notes.set(last, noteText(note));
   }
   return { locked, notes, ranges: ranges.slice(0, MAX_NOTES) };
 }
@@ -230,9 +246,11 @@ function toText(st = state) {
     for (const a of p.actions) {
       let line = `${p.id},${a.start - prevEnd},${a.boss},${a.battle}`;
       if (a.rate !== 1) line += `,${a.rate}`;
+      // ロックと注意点は同じ行の末尾に書く（注意点だけなら unlock を挟む）
+      const note = noteText(a.note);
+      if (a.locked || note) line += `,${a.locked ? "lock" : "unlock"}`;
+      if (note) line += `,${note}`;
       out.push(line);
-      if (a.locked) out.push(LOCK_MARK);
-      if (noteText(a.note)) out.push(NOTE_MARK + noteText(a.note));
       prevEnd = a.start + len;
     }
   }

@@ -14,7 +14,7 @@ from collections import OrderedDict, deque
 from flask import Flask, jsonify, request, send_from_directory
 
 from ChartLib import (BASE_DIR, BOSSES, REGULAR_BOSSES, IMAGE_KEYS, COOL_TIME, MAX_PLAYERS,
-                      parse, generate_detail, generate_chart, calc_level)
+                      parse, split_action, generate_detail, generate_chart, calc_level)
 from store import make_store, NotFound
 from archive import make_plan_archive, SESSION_PREFIX
 
@@ -299,7 +299,8 @@ RANGE_NOTE = re.compile(r"#note@(\d+)-(\d+)(?: (.*))?")  # 作戦の経過秒の
 
 
 def parse_notes(text):
-    """txt の注意点のコメント行を読む。戦闘の注意点は {detail の添字: 本文}、全体の注意点は [{start, end, text}]。
+    """txt の注意点を読む。戦闘の注意点は {detail の添字: 本文}、全体の注意点は [{start, end, text}]。
+    戦闘の注意点は行動行の末尾 (,lock|unlock,本文) か直後の「#note 本文」行で、両方あれば #note 行で上書きする。
     行動行の判定は ChartLib.parse と同じなので、添字は generate_detail の順と一致する"""
     battle_notes = {}
     ranges = []
@@ -317,6 +318,9 @@ def parse_notes(text):
             continue
         if line.startswith("::") or len(line.split(",")) <= 1:
             continue
+        note = split_action(line)[2]
+        if note is not None:
+            battle_notes[count] = check_note(note, no)
         count += 1
     if len(ranges) > MAX_NOTES:
         raise InputError("全体の注意点は {} 件までです".format(MAX_NOTES))

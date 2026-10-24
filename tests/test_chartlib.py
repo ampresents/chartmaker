@@ -2,7 +2,7 @@
 import pytest
 
 from conftest import read_fixture
-from ChartLib import (COOL_TIME, calc_level, format_clock, generate_detail, layout_time_labels, parse,
+from ChartLib import (COOL_TIME, calc_level, format_clock, generate_detail, layout_time_labels, parse, split_action,
                       LABEL_PAD)
 
 
@@ -38,12 +38,34 @@ def test_parse_ignores_gui_lock_lines():
     assert parse(lines(locked)) == parse(lines(plain))
 
 
+def test_parse_ignores_inline_lock_and_note():
+    # 行動行の末尾の lock/unlock と注意点 (カンマを含んでよい) もチャートには影響しない
+    plain = "::timelag=0\nAlpha01,5,1st_boss,30\nAlpha01,0,2nd_boss,40,0.5\nAlpha01,0,3rd_boss,40\n"
+    inline = ("::timelag=0\nAlpha01,5,1st_boss,30,lock\nAlpha01,0,2nd_boss,40,0.5,unlock,先に, 回復\n"
+              "Alpha01,0,3rd_boss,40,1.0,\n")
+    assert parse(lines(inline)) == parse(lines(plain))
+
+
+@pytest.mark.parametrize("line, expected", [
+    ("A01,0,1st_boss,30", (("A01", "0", "1st_boss", "30", "1.0"), None, None)),
+    ("A01,0,1st_boss,30,0.5", (("A01", "0", "1st_boss", "30", "0.5"), None, None)),
+    ("A01,0,1st_boss,30,lock", (("A01", "0", "1st_boss", "30", "1.0"), True, None)),
+    ("A01,0,1st_boss,30, Unlock ,a,b ", (("A01", "0", "1st_boss", "30", "1.0"), False, "a,b")),
+    ("A01,0,1st_boss,30,0.5,lock,注意", (("A01", "0", "1st_boss", "30", "0.5"), True, "注意")),
+    ("A01,0,1st_boss,30,0.5,unlock,", (("A01", "0", "1st_boss", "30", "0.5"), False, None)),
+])
+def test_split_action(line, expected):
+    assert split_action(line) == expected
+
+
 @pytest.mark.parametrize("line", [
     "Alpha01,5,4th_boss,30",     # 不明なボス
     "Alpha01,x,1st_boss,30",     # 待ち秒数が整数でない
     "Alpha01,5,1st_boss,3.5",    # 戦闘秒数が整数でない
     "Alpha01,5,1st_boss,30,abc", # 与ダメージ率が数でない
     "Alpha01,5,1st_boss",        # 項目が足りない
+    "Alpha01,5,1st_boss,30,0.5,abc",  # 6 項目目が lock/unlock でない
+    "Alpha01,5,1st_boss,30,lok,x",    # lock の綴り違い
 ])
 def test_parse_rejects_bad_action(line):
     with pytest.raises(Exception, match=r"\[line:2\]"):
