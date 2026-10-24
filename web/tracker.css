@@ -113,6 +113,9 @@ body.late .toolbar { box-shadow: inset 0 -3px var(--late); }
 .fix-go[hidden] { display: none; }
 .fix-info { margin: 10px 0; font-size: 22px; font-weight: bold; text-align: center; font-variant-numeric: tabular-nums; }
 .fix-nudge { gap: 4px; }
+.shift { display: flex; align-items: center; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+.shift button { padding: 2px 8px; font-size: 12px; }
+.shift span { color: var(--muted); font-size: 12px; }
 .fix-nudge button { flex: 1; min-width: 0; padding-inline: 4px; }
 
 .next { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
@@ -151,7 +154,7 @@ body.late .toolbar { box-shadow: inset 0 -3px var(--late); }
 
 /* 個人ビュー (?p=): 自分の出撃だけ。スマホ向けに全体の部品を隠して大きく出す */
 body.personal .bosses, body.personal .lists, body.personal .timers-box, body.personal .history-box,
-body.personal .chart-box, body.personal .stat-score, body.personal #comment { display: none; }
+body.personal .chart-box, body.personal .stat-score, body.personal #comment, body.personal .shift { display: none; }
 body.personal .toolbar { flex-wrap: wrap; }
 body.personal .toolbar h1 img { height: 22px; }
 body.personal #board { padding: 10px; gap: 10px; }

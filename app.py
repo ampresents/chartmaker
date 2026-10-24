@@ -436,7 +436,8 @@ def api_session_get(sid):
     if since == doc["version"]:
         return jsonify(version=doc["version"], server_now=now_ms())
     return jsonify(version=doc["version"], plan=doc["plan"], events=doc["events"], starts=doc.get("starts") or {},
-                   notify_paused=bool(doc.get("notify_paused")), server_now=now_ms())
+                   start_shift=doc.get("start_shift", 0), notify_paused=bool(doc.get("notify_paused")),
+                   server_now=now_ms())
 
 
 class ChartCache:
@@ -506,6 +507,12 @@ def current_floor(events):
     return floor, killed
 
 
+def before_start(doc):
+    """作戦の開始前は討伐も出撃の補正も受け付けない (開始前の押し間違いで階層が進まないように)"""
+    if now_ms() < doc["plan"]["start_epoch_ms"]:
+        raise Conflict("作戦の開始前です")
+
+
 @app.post("/api/sessions/<sid>/kill")
 @rate_limit("kill", LIMIT_KILL)
 def api_session_kill(sid):
@@ -515,6 +522,7 @@ def api_session_kill(sid):
         raise InputError("不正な指定です")
 
     def apply(doc):
+        before_start(doc)
         cur, killed = current_floor(doc["events"])
         if floor != cur:
             raise Conflict("既に階層が進んでいます")
@@ -564,6 +572,7 @@ def api_session_start(sid):
         raise InputError("出撃時刻が範囲外です")
 
     def apply(doc):
+        before_start(doc)
         if not 0 <= battle < len(doc["plan"]["detail"]):
             raise InputError("不正な指定です")
         starts = doc.setdefault("starts", {})  # 古いセッションには無い
@@ -575,6 +584,35 @@ def api_session_start(sid):
 
     doc = store.update(sid, apply)
     return jsonify(version=doc["version"], starts=doc["starts"], server_now=now_ms())
+
+
+# 開始時刻の微調整の上限 (作成時の開始時刻からのずれの合計)。ゲームのサーバーとの時計のずれを直すだけなので小さくてよい
+SHIFT_MAX = 600
+
+@app.post("/api/sessions/<sid>/shift")
+@rate_limit("kill", LIMIT_KILL)
+def api_session_shift(sid):
+    """ゲームのサーバーと時計がずれているとき、作戦の開始時刻を delta 秒ずらす (正で遅らせる)。
+    討伐と出撃の補正は押した実際の時刻のまま残し、経過秒だけ直す"""
+    delta = (request.get_json(silent=True) or {}).get("delta")
+    if not isinstance(delta, int) or isinstance(delta, bool) or not 0 < abs(delta) <= SHIFT_MAX:
+        raise InputError("不正な指定です")
+
+    def apply(doc):
+        shift = doc.get("start_shift", 0) + delta
+        if abs(shift) > SHIFT_MAX:
+            raise InputError(f"開始時刻は作成時から ±{SHIFT_MAX // 60} 分までしかずらせません")
+        doc["start_shift"] = shift
+        start = doc["plan"]["start_epoch_ms"] = doc["plan"]["start_epoch_ms"] + delta * 1000
+        for e in doc["events"]:
+            e["t"] = round((e["at"] - start) / 1000)
+        if doc.get("starts"):
+            doc["starts"] = {k: v - delta for k, v in doc["starts"].items()}
+        return doc
+
+    doc = store.update(sid, apply)
+    return jsonify(version=doc["version"], start_epoch_ms=doc["plan"]["start_epoch_ms"], start_shift=doc["start_shift"],
+                   events=doc["events"], starts=doc.get("starts") or {}, server_now=now_ms())
 
 
 @app.post("/api/sessions/<sid>/notify")

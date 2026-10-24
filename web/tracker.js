@@ -36,6 +36,15 @@ const noteCleared = new Set();  // そのうち、始まったので通知の削
 const NOTE_LEAD = 30;           // 通知なしのセッションで、注意点を何秒前から出すか
 const RESORTIE_MARGIN = 1;      // クールタイム明けから実際に再出撃できるまでの秒 (操作の時間)
 let starts = {};                // 手で補正した実際の出撃秒 { plan.detail の添字: 秒 } (サーバーに保存し全端末で共有)
+let startShift = 0;             // 開始時刻を作成時から何秒ずらしたか (サーバーに保存し全端末で共有)
+let serverStart = 0;            // サーバーにある開始時刻 (ms)。plan.start_epoch_ms はこれ + shiftLocal 秒
+let shiftLocal = 0;             // 押したがまだサーバーに反映されていない秒 (送信中を含む)
+let shiftQueued = 0;            // そのうちまだ送っていない秒
+let shiftSending = false;
+let shiftTimer = 0, shiftRepeat = 0;
+const SHIFT_MAX = 600;          // app.py と同じ (作成時から ±10 分)
+const SHIFT_HOLD_MS = 400, SHIFT_REPEAT_MS = 100; // 押し続けたときの繰り返し
+const SHIFT_SEND_MS = 500;      // 最後に押してからまとめて送るまで
 let fixPlayer = null;           // 補正ダイアログで開いているプレイヤー (raw_name)
 // 個人ビュー (?p=<raw_name>): 1 人の出撃だけを大きく出す閲覧専用の画面。討伐・補正・破棄・Discord 通知はしない
 const personal = new URLSearchParams(location.search).has("p");
@@ -213,8 +222,25 @@ function buildBoard() {
   plan.byPlayer = [...players.values()].map((v) => v.sort((a, b) => a.push_start - b.push_start));
   // 作戦画像の列は generate_detail に初めて出てきた順 (= players の順)
   plan.column = new Map([...players.keys()].map((name, i) => [name, i]));
-  const st = new Date(plan.start_epoch_ms);
-  $("#clock-sub").dataset.start = `開始 ${st.getMonth() + 1}/${st.getDate()} ${pad2(st.getHours())}:${pad2(st.getMinutes())}`;
+  setStartLabel();
+  // ゲームのサーバーと時計がずれているとき用。+ で開始を遅らせる (開始まで・残り時間が増える)
+  // 押し続けると繰り返す。押した分はまとめて 1 回で送る
+  $("#shift-box").querySelectorAll("[data-shift]").forEach((b) => {
+    const d = Number(b.dataset.shift);
+    b.addEventListener("pointerdown", (e) => {
+      if (e.button) return;
+      e.preventDefault();
+      stopShiftRepeat();
+      stepShift(d);
+      shiftRepeat = setTimeout(function again() {
+        stepShift(d);
+        shiftRepeat = setTimeout(again, SHIFT_REPEAT_MS);
+      }, SHIFT_HOLD_MS);
+    });
+    for (const ev of ["pointerup", "pointerleave", "pointercancel"]) b.addEventListener(ev, stopShiftRepeat);
+    // キーボード (Enter/Space) の click は detail が 0
+    b.addEventListener("click", (e) => { if (!e.detail) stepShift(d); });
+  });
 
   ui.bosses = {};
   $("#bosses").replaceChildren(...BOSSES.map((b) => {
@@ -522,7 +548,9 @@ function render() {
     u.card.classList.toggle("over", over);
     setText(u.count, text);
     setText(u.sub, sub);
-    u.btn.disabled = busy || dead || locked;
+    // 開始前は押せない (押し間違いで階層が進まないように。サーバーも 409 を返す)
+    u.btn.disabled = busy || dead || locked || now < 0;
+    u.btn.title = now < 0 ? "作戦の開始後に押せます" : "";
   }
 
   // 挑戦中・次に出撃 (討伐ボタンが押されるまで挑戦者は入れ替わらず、遅れは後続に持ち越す)
@@ -671,9 +699,10 @@ function renderFix(sched, now) {
   const x = plan.byPlayer.find((b) => b[0].raw_name === fixPlayer)[0];
   const left = started ? Math.ceil(readyAt(started) - now) : 0;
   setText($("#fix-name"), x.player_name);
-  setText($("#fix-left"), left > 0 ? `出撃可能まで あと ${mmss(left)}` : "出撃可能");
-  for (const el of $("#fix-dialog").querySelectorAll("[data-d]")) el.disabled = busy || !(started || next);
-  $("#fix-ready").disabled = busy || left <= 0;
+  // 開始前は補正しない (サーバーも 409 を返す)
+  setText($("#fix-left"), now < 0 ? "作戦の開始後に補正できます" : left > 0 ? `出撃可能まで あと ${mmss(left)}` : "出撃可能");
+  for (const el of $("#fix-dialog").querySelectorAll("[data-d]")) el.disabled = busy || now < 0 || !(started || next);
+  $("#fix-ready").disabled = busy || now < 0 || left <= 0;
 }
 // 補正する戦闘: 直近の出撃 (挑戦中を含む)。まだ 1 度も出撃していなければ次の戦闘を今出撃したことにする
 function fixTarget(now) {
@@ -771,10 +800,67 @@ function notifyUpcoming(sched, now) {
 
 // ---------------------------------------------------------------- 操作
 
+function setStartLabel() {
+  const st = new Date(plan.start_epoch_ms);
+  const sec = st.getSeconds() ? `:${pad2(st.getSeconds())}` : "";
+  $("#clock-sub").dataset.start = `開始 ${st.getMonth() + 1}/${st.getDate()} ${pad2(st.getHours())}:${pad2(st.getMinutes())}${sec}`;
+  const shift = startShift + shiftLocal;
+  setText($("#shift-info"), shift ? `補正 ${shift > 0 ? "+" : ""}${shift}秒` : "");
+}
+
+// 開始時刻の微調整。押した分は先に表示へ反映し (shiftLocal)、少し待ってまとめて送る
+function stepShift(d) {
+  if (Math.abs(startShift + shiftLocal + d) > SHIFT_MAX) return;
+  shiftLocal += d;
+  shiftQueued += d;
+  applyStart();
+  render();
+  clearTimeout(shiftTimer);
+  shiftTimer = setTimeout(flushShift, SHIFT_SEND_MS);
+}
+
+function stopShiftRepeat() {
+  if (!shiftRepeat) return;
+  clearTimeout(shiftRepeat);
+  shiftRepeat = 0;
+  clearTimeout(shiftTimer);
+  flushShift();
+}
+
+async function flushShift() {
+  if (shiftSending || !shiftQueued || shiftRepeat) return;
+  const delta = shiftQueued;
+  shiftQueued = 0;
+  shiftSending = true;
+  let j = null;
+  try {
+    j = await api("POST", `/api/sessions/${sessionId()}/shift`, { delta });
+  } catch (e) {
+    showStatus(e.message);
+    try { j = await api("GET", `/api/sessions/${sessionId()}`); } catch (e2) { /* 次のポーリングに任せる */ }
+  }
+  shiftLocal -= delta;
+  shiftSending = false;
+  if (j) applyResponse(j);
+  applyStart();
+  render();
+  if (shiftQueued) flushShift();
+}
+
+function applyStart() {
+  plan.start_epoch_ms = serverStart + shiftLocal * 1000;
+  setStartLabel();
+}
+
 function applyResponse(j) {
   if (j.version < version) return;
   version = j.version;
+  if ("start_shift" in j) startShift = j.start_shift;
+  // 開始時刻は他の端末で微調整されることがある (shift の応答は start_epoch_ms だけを返す)
+  const start = j.plan ? j.plan.start_epoch_ms : j.start_epoch_ms;
+  if (start != null) serverStart = start;
   if (j.plan && !plan) { plan = j.plan; buildBoard(); }
+  if (plan && start != null) applyStart();
   if (j.events) events = j.events;
   if (j.starts) starts = j.starts;
   if ("notify_paused" in j) notifyPaused = j.notify_paused;

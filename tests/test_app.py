@@ -1,5 +1,6 @@
 # Flask の API (エディタ用と進行管理)
 import os
+import time
 
 # ローカル用の設定 (メモリ上のセッション、作戦を保存しない) で import する
 os.environ.pop("STORE", None)
@@ -256,6 +257,45 @@ def test_session_start(client):
     assert client.post(url, json={"battle": 1, "t": None}).status_code == 200  # 無くても良い
     # 開始直後に「出撃可能にする」と出撃時刻は負になる
     assert client.post(url, json={"battle": 1, "t": -200}).json["starts"] == {"1": -200}
+
+
+def test_session_rejects_actions_before_start(client):
+    # 開始前は討伐も出撃の補正も 409 (押し間違いで階層が進まないように)
+    future = int(time.time() * 1000) + 600_000
+    r = client.post("/api/sessions", json={"text": PLAN, "start_epoch_ms": future})
+    sid = r.json["id"]
+    assert kill(client, sid, 1, "1st_boss").status_code == 409
+    assert client.post("/api/sessions/{}/start".format(sid), json={"battle": 0, "t": 10}).status_code == 409
+    assert client.get("/api/sessions/" + sid).json["events"] == []
+
+
+def test_session_shift_start(client):
+    # 開始時刻を 1 秒単位でずらす。討伐と出撃の補正は実際の時刻のまま、経過秒だけ直る
+    sid = create_session(client)
+    url = "/api/sessions/{}/".format(sid)
+    kill(client, sid, 1, "1st_boss")
+    client.post(url + "start", json={"battle": 0, "t": 100})
+    doc = client.get("/api/sessions/" + sid).json
+    at, t = doc["events"][0]["at"], doc["events"][0]["t"]
+    r = client.post(url + "shift", json={"delta": 3})
+    assert r.status_code == 200
+    assert (r.json["start_epoch_ms"], r.json["start_shift"]) == (1_700_000_003_000, 3)
+    assert (r.json["events"][0]["at"], r.json["events"][0]["t"]) == (at, t - 3)
+    assert r.json["starts"] == {"0": 97}
+    r = client.post(url + "shift", json={"delta": -1})
+    assert r.json["start_shift"] == 2
+    doc = client.get("/api/sessions/" + sid).json
+    assert (doc["plan"]["start_epoch_ms"], doc["start_shift"], doc["version"]) == (1_700_000_002_000, 2, r.json["version"])
+
+
+def test_session_shift_errors(client):
+    sid = create_session(client)
+    url = "/api/sessions/{}/shift".format(sid)
+    for body in ({"delta": 0}, {"delta": 1.5}, {"delta": True}, {"delta": "1"}, {"delta": 601}, {}):
+        assert client.post(url, json=body).status_code == 400
+    assert client.post(url, json={"delta": 600}).status_code == 200
+    assert client.post(url, json={"delta": 1}).status_code == 400  # 合計で ±10 分まで
+    assert client.get("/api/sessions/" + sid).json["start_shift"] == 600
 
 
 @pytest.mark.parametrize("body", [

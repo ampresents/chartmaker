@@ -79,7 +79,8 @@
 
   <section class="stats">
     <div class="stat"><div class="label">現在の階層</div><div class="value" id="floor"></div></div>
-    <div class="stat"><div class="label" id="clock-label">残り時間</div><div class="value" id="clock"></div><div class="sub" id="clock-sub"></div></div>
+    <div class="stat"><div class="label" id="clock-label">残り時間</div><div class="value" id="clock"></div><div class="sub" id="clock-sub"></div>
+      <div class="shift" id="shift-box" title="ゲームのサーバーと時計がずれているときに、作戦の開始時刻を 1 秒単位でずらします (全端末に反映)"><button type="button" data-shift="-1">-1秒</button><button type="button" data-shift="1">+1秒</button><span id="shift-info"></span></div></div>
     <div class="stat" id="delay-box"><div class="label">作戦との差</div><div class="value" id="delay"></div><div class="sub" id="delay-sub"></div></div>
     <div class="stat stat-score"><div class="label">予定スコア</div><div class="value" id="score"></div><div class="sub" id="score-sub"></div></div>
   </section>
