@@ -340,6 +340,13 @@ function setSelection(list, anchor) {
 
 function clearSelection() { setSelection([]); }
 
+// Ctrl+A: すべての戦闘を選ぶ (ロック・ボス変更・削除をまとめて適用できる)
+function selectAll() {
+  const list = [];
+  state.players.forEach((pl, p) => pl.actions.forEach((_, a) => list.push({ p, a })));
+  setSelection(list, selection);
+}
+
 // Ctrl+クリック: 1 個ずつ追加・解除
 function toggleSelect(pi, ai) {
   const list = selectedBlocks().slice();
@@ -367,6 +374,11 @@ function eachSelected(fn) {
 function toggleLockSelected() {
   const lock = selectedBlocks().some(({ p, a }) => !state.players[p].actions[a].locked);
   eachSelected((x) => { if (lock) x.locked = true; else delete x.locked; });
+}
+
+// 作戦のすべての戦闘をロックする (lock = false なら解除)
+function setLockAll(lock) {
+  state.players.forEach((pl) => pl.actions.forEach((x) => { if (lock) x.locked = true; else delete x.locked; }));
 }
 
 // 後ろの戦闘から消して、残りの番号がずれないようにする。1 個だけならそのプレイヤーの選択に戻す
@@ -1074,14 +1086,14 @@ function renderSide() {
         })),
         d ? h("p", { class: "hint" }, `戦闘 ${clock(d.battle_start)}–${clock(d.battle_end)}　再出撃 ${clock(d.cool_off)}　Lv${d.level}　${fmt(d.est_score)} / ${fmt(d.score)}`) : null,
         d && critText(`${pi}:${ai}`) ? h("p", { class: "hint" + (critMap.get(`${pi}:${ai}`).rank ? " crit-hint" : "") }, critText(`${pi}:${ai}`)) : null,
-        h("p", { class: "hint" }, "↑↓ キーで 1 秒ずつ（Shift で 10 秒）動かせます。ブロックの右クリックでボスを順に切り替え、1〜4 キーで直接指定できます。Ctrl+クリックで複数選択、Shift+クリックで同じ列の範囲選択ができます。"),
+        h("p", { class: "hint" }, "↑↓ キーで 1 秒ずつ（Shift で 10 秒）動かせます。ブロックの右クリックでボスを順に切り替え、1〜4 キーで直接指定できます。Ctrl+クリックで複数選択、Shift+クリックで同じ列の範囲選択、Ctrl+A ですべて選択ができます。"),
         h("div", { class: "row" },
           h("span", { class: "grow" }),
           h("button", { class: "danger", onclick: () => mutate(deleteSelected) }, "戦闘を削除 (Del)")));
     }
   } else {
     parts.push(h("p", { class: "hint" },
-      "列の空いた場所をダブルクリックすると戦闘を追加できます。ブロックをドラッグすると時刻を変えられます。隙間があればそのブロックだけが動き、隣に当たると押し出します。下端のドラッグで戦闘時間を変えられます。右クリックでボスを順に切り替え、選択中に 1〜4 キーで直接指定、↑↓ キーで 1 秒ずつ（Shift で 10 秒）動かせます。Ctrl+クリックで複数選択、Shift+クリックで同じ列の範囲選択ができ、Esc か空いた場所のクリックで解除します。"));
+      "列の空いた場所をダブルクリックすると戦闘を追加できます。ブロックをドラッグすると時刻を変えられます。隙間があればそのブロックだけが動き、隣に当たると押し出します。下端のドラッグで戦闘時間を変えられます。右クリックでボスを順に切り替え、選択中に 1〜4 キーで直接指定、↑↓ キーで 1 秒ずつ（Shift で 10 秒）動かせます。Ctrl+クリックで複数選択、Shift+クリックで同じ列の範囲選択、Ctrl+A ですべて選択ができ、Esc か空いた場所のクリックで解除します。"));
   }
 
   panel.replaceChildren(...parts.filter((x) => x));  // Lv/スコアの取得前は null が入る
@@ -1125,6 +1137,16 @@ function renderRangeNotes() {
   ];
 }
 
+// 全ブロックのロック・解除。押すたびに 1 回の元に戻す単位になる
+function renderLockAll() {
+  const acts = state.players.flatMap((pl) => pl.actions);
+  const locked = acts.filter((x) => x.locked).length;
+  return h("div", { class: "row" },
+    h("span", { class: "grow" }, `🔒 ロック ${locked} / ${acts.length}`),
+    h("button", { disabled: locked === acts.length, title: "すべての戦闘の位置をロックします", onclick: () => mutate(() => setLockAll(true)) }, "すべてロック"),
+    h("button", { disabled: !locked, title: "すべての戦闘のロックを解除します", onclick: () => mutate(() => setLockAll(false)) }, "すべて解除"));
+}
+
 function renderSettings() {
   const c = state.constants;
   const colors = Object.keys(CONFIG.color_table);
@@ -1144,6 +1166,7 @@ function renderSettings() {
     h("label", { class: "row", title: `撃破が ${CRIT_DELAYS[0]} 秒遅れると後の出撃がずれて予定スコアが減る戦闘 (クリティカルパス) に、紫の線を付けます。このブラウザにだけ保存し、作戦には含めません` },
       h("input", { type: "checkbox", checked: critShow, onchange: (e) => { critShow = e.target.checked; save(); render(); } }),
       "クリティカルパスを強調する"),
+    renderLockAll(),
     ...renderRangeNotes(),
     h("h3", {}, "ボス（属性色・画像）"),
   ];
@@ -1556,6 +1579,12 @@ function bindUI() {
     const key = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
     else if ((e.ctrlKey || e.metaKey) && (key === "y" || (key === "z" && e.shiftKey))) { e.preventDefault(); redo(); }
+    else if ((e.ctrlKey || e.metaKey) && key === "a" && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      selectAll();
+      render();
+      renderSide();
+    }
     else if ((key === "delete" || key === "backspace") && selectedBlocks().length) {
       e.preventDefault();
       mutate(deleteSelected);
