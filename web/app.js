@@ -356,12 +356,18 @@ function toggleSelect(pi, ai) {
   setSelection(list, i >= 0 ? selection : { p: pi, a: ai });
 }
 
-// Shift+クリック: 起点と同じ列ならその間をすべて選ぶ。別の列なら単独選択
+// Shift+クリック: 起点とクリックした戦闘を対角とする範囲を選ぶ。起点の列からクリックした列までの各列で、
+// 2 個の出撃時刻の間に出撃する戦闘すべて (同じ列なら、その間の戦闘すべて)
 function rangeSelect(pi, ai) {
   const from = selection;
-  if (!from || from.a === null || from.p !== pi) { setSelection([{ p: pi, a: ai }]); return; }
+  const fromAct = from && from.a !== null && state.players[from.p]?.actions[from.a];
+  if (!fromAct) { setSelection([{ p: pi, a: ai }]); return; }
+  const t1 = fromAct.start, t2 = state.players[pi].actions[ai].start;
+  const lo = Math.min(t1, t2), hi = Math.max(t1, t2);
   const list = [];
-  for (let a = Math.min(from.a, ai); a <= Math.max(from.a, ai); a++) list.push({ p: pi, a });
+  for (let p = Math.min(from.p, pi); p <= Math.max(from.p, pi); p++) {
+    state.players[p].actions.forEach((x, a) => { if (x.start >= lo && x.start <= hi) list.push({ p, a }); });
+  }
   setSelection(list, from);
 }
 
@@ -867,7 +873,7 @@ function startDrag(e, pi, ai, mode) {
   if (e.button !== 0) return;
   e.preventDefault();
   e.stopPropagation();
-  // Ctrl+クリックで追加・解除、Shift+クリックで同じ列の範囲選択（ドラッグはしない）
+  // Ctrl+クリックで追加・解除、Shift+クリックで起点との間の範囲選択（ドラッグはしない）
   if (mode === "move" && (e.ctrlKey || e.metaKey || e.shiftKey)) {
     if (e.shiftKey) rangeSelect(pi, ai);
     else toggleSelect(pi, ai);
@@ -1006,7 +1012,7 @@ function renderMultiSide() {
         mutate(() => eachSelected((x) => { x.rate = Number.isFinite(r) ? r : 1; }));
       },
     })),
-    h("p", { class: "hint" }, "ボス・ロック・戦闘秒数・与ダメージ率・削除は選択中の戦闘すべてに適用します。ドラッグか ↑↓ キー（Shift で 10 秒）で間隔を保ったまままとめて動かせます。ロックや端で 1 個でも止まると全体が止まります。Ctrl+クリックで追加・解除、Shift+クリックで同じ列の範囲選択、Esc か空いた場所のクリックで解除します。"),
+    h("p", { class: "hint" }, "ボス・ロック・戦闘秒数・与ダメージ率・削除は選択中の戦闘すべてに適用します。ドラッグか ↑↓ キー（Shift で 10 秒）で間隔を保ったまままとめて動かせます。ロックや端で 1 個でも止まると全体が止まります。Ctrl+クリックで追加・解除、Shift+クリックで範囲選択、Esc か空いた場所のクリックで解除します。"),
     h("div", { class: "row" },
       h("span", { class: "grow" }),
       h("button", { class: "danger", onclick: () => mutate(deleteSelected) }, `${acts.length} 個の戦闘を削除 (Del)`)),
@@ -1086,14 +1092,14 @@ function renderSide() {
         })),
         d ? h("p", { class: "hint" }, `戦闘 ${clock(d.battle_start)}–${clock(d.battle_end)}　再出撃 ${clock(d.cool_off)}　Lv${d.level}　${fmt(d.est_score)} / ${fmt(d.score)}`) : null,
         d && critText(`${pi}:${ai}`) ? h("p", { class: "hint" + (critMap.get(`${pi}:${ai}`).rank ? " crit-hint" : "") }, critText(`${pi}:${ai}`)) : null,
-        h("p", { class: "hint" }, "↑↓ キーで 1 秒ずつ（Shift で 10 秒）動かせます。ブロックの右クリックでボスを順に切り替え、1〜4 キーで直接指定できます。Ctrl+クリックで複数選択、Shift+クリックで同じ列の範囲選択、Ctrl+A ですべて選択ができます。"),
+        h("p", { class: "hint" }, "↑↓ キーで 1 秒ずつ（Shift で 10 秒）動かせます。ブロックの右クリックでボスを順に切り替え、1〜4 キーで直接指定できます。Ctrl+クリックで複数選択、Shift+クリックで範囲選択、Ctrl+A ですべて選択ができます。"),
         h("div", { class: "row" },
           h("span", { class: "grow" }),
           h("button", { class: "danger", onclick: () => mutate(deleteSelected) }, "戦闘を削除 (Del)")));
     }
   } else {
     parts.push(h("p", { class: "hint" },
-      "列の空いた場所をダブルクリックすると戦闘を追加できます。ブロックをドラッグすると時刻を変えられます。隙間があればそのブロックだけが動き、隣に当たると押し出します。下端のドラッグで戦闘時間を変えられます。右クリックでボスを順に切り替え、選択中に 1〜4 キーで直接指定、↑↓ キーで 1 秒ずつ（Shift で 10 秒）動かせます。Ctrl+クリックで複数選択、Shift+クリックで同じ列の範囲選択、Ctrl+A ですべて選択ができ、Esc か空いた場所のクリックで解除します。"));
+      "列の空いた場所をダブルクリックすると戦闘を追加できます。ブロックをドラッグすると時刻を変えられます。隙間があればそのブロックだけが動き、隣に当たると押し出します。下端のドラッグで戦闘時間を変えられます。右クリックでボスを順に切り替え、選択中に 1〜4 キーで直接指定、↑↓ キーで 1 秒ずつ（Shift で 10 秒）動かせます。Ctrl+クリックで複数選択、Shift+クリックで範囲選択、Ctrl+A ですべて選択ができ、Esc か空いた場所のクリックで解除します。"));
   }
 
   panel.replaceChildren(...parts.filter((x) => x));  // Lv/スコアの取得前は null が入る
