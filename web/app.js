@@ -541,6 +541,28 @@ function snapCandidates(pi, boss, exclude, above = -1) {
   return out;
 }
 
+// 列 pi の戦闘 ai の下端（戦闘秒数）をドラッグするときの吸着先 [{t, label, src: [key]}]（t は battle_end）
+// - ほかの列の戦闘の終了時刻（同時出撃の人と戦闘秒数をそろえる）。同じ時刻に終わる戦闘はまとめて 1 つの候補にする
+// - チャートの終了（60:00）
+function endSnapCandidates(pi, ai) {
+  const lag = timelag();
+  const byT = new Map();
+  state.players.forEach((p, pj) => {
+    if (pj === pi) return;
+    p.actions.forEach((a, aj) => {
+      const t = a.start + lag + a.battle;
+      const c = byT.get(t);
+      if (c) { c.src.push(`${pj}:${aj}`); c.n++; return; }
+      byT.set(t, { t, name: `${p.name || p.id} の ${BOSS_LABEL[a.boss]}`, src: [`${pj}:${aj}`], n: 1 });
+    });
+  });
+  const out = [...byT.values()].map((c) => ({
+    t: c.t, label: `${c.name}${c.n > 1 ? ` ほか${c.n - 1}件` : ""} と同時に終了`, src: c.src,
+  }));
+  out.push({ t: CHART_SEC, label: "チャートの終了", src: [] });
+  return out;
+}
+
 // raw 秒に画面上で SNAP_PX 以内の候補があれば、いちばん近いものを返す
 function snapTo(raw, cands) {
   let best = null;
@@ -838,7 +860,9 @@ function startDrag(e, pi, ai, mode) {
   const exclude = new Set((group ? multi : [{ p: pi, a: ai }]).map((x) => `${x.p}:${x.a}`));
   let above = ai - 1;
   while (above >= 0 && exclude.has(`${pi}:${above}`)) above--;
-  const cands = mode === "move" && !groupLocked ? snapCandidates(pi, a.boss, exclude, above) : [];
+  const cands = mode === "resize" ? endSnapCandidates(pi, ai)
+    : !groupLocked ? snapCandidates(pi, a.boss, exclude, above) : [];
+  const end0 = start0 + timelag() + battle0;
   const tip = h("div", { class: "drag-tip", hidden: true });
   document.body.append(tip);
 
@@ -847,14 +871,20 @@ function startDrag(e, pi, ai, mode) {
     moved = true;
     const dt = Math.round((ev.clientY - y0) / scale);
     // Alt を押している間は吸着しない
-    const snap = ev.altKey ? null : snapTo(start0 + dt, cands);
-    const target = snap ? snap.t : start0 + dt;
-    if (group) shiftSelected(target - a.start);
-    else if (mode === "move") slideTo(acts, ai, target);
-    else a.battle = clamp(battle0 + dt, 1, MAX_BATTLE);
+    const snap = ev.altKey ? null : snapTo((mode === "resize" ? end0 : start0) + dt, cands);
+    let snapped;
+    if (mode === "resize") {
+      a.battle = clamp(snap ? snap.t - end0 + battle0 : battle0 + dt, 1, MAX_BATTLE);
+      // 戦闘秒数の上下限で届かなかったときは吸着を表示しない
+      snapped = snap && a.start + timelag() + a.battle === snap.t ? snap : null;
+    } else {
+      const target = snap ? snap.t : start0 + dt;
+      if (group) shiftSelected(target - a.start);
+      else slideTo(acts, ai, target);
+      // ロックや端で止まって届かなかったときは吸着を表示しない
+      snapped = snap && a.start === snap.t ? snap : null;
+    }
     if (!group) setSelection([{ p: pi, a: ai }]);
-    // ロックや端で止まって届かなかったときは吸着を表示しない
-    const snapped = snap && a.start === snap.t ? snap : null;
     snapGuide = snapped ? { t: snapped.t, src: new Set(snapped.src) } : null;
     render();
     tip.hidden = false;
