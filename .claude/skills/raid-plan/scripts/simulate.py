@@ -65,6 +65,8 @@ def parse(lines):
         except ValueError:
             errors.append(f"[{n}] 数値が読めません: {line}")
             continue
+        if not math.isfinite(rate):  # nan / inf は ChartLib.parse と同じく 1.0 にする
+            rate = 1.0
         p = item[0]
         if wait < 0:
             errors.append(f"[{n}] 待ち秒が負です (前の出撃のクールタイム中): {line}")

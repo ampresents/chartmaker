@@ -46,8 +46,16 @@ def test_parse_ignores_inline_lock_and_note():
     assert parse(lines(inline)) == parse(lines(plain))
 
 
+@pytest.mark.parametrize("rate", ["nan", "NaN", "inf", "-inf", " Infinity "])
+def test_parse_non_finite_rate_is_one(rate):
+    # 有限でない与ダメージ率は書いていないのと同じ 1.0 になり、得点計算でも落ちない
+    commands, constants = parse(lines("::timelag=0\nAlpha01,5,1st_boss,30,{},lock\n".format(rate)))
+    assert commands == [("Alpha01", "5", "1st_boss", "30", "1.0")]
+    assert generate_detail(commands, constants)[0]["est_score"] == 50000
+
+
 @pytest.mark.parametrize("line, expected", [
-    ("A01,0,1st_boss,30", (("A01", "0", "1st_boss", "30", "1.0"), None, None)),
+    ("A01,0,1st_boss,30",(("A01", "0", "1st_boss", "30", "1.0"), None, None)),
     ("A01,0,1st_boss,30,0.5", (("A01", "0", "1st_boss", "30", "0.5"), None, None)),
     ("A01,0,1st_boss,30,lock", (("A01", "0", "1st_boss", "30", "1.0"), True, None)),
     ("A01,0,1st_boss,30, Unlock ,a,b ", (("A01", "0", "1st_boss", "30", "1.0"), False, "a,b")),

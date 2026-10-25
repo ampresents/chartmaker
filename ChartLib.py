@@ -100,17 +100,19 @@ def parse(text):
         if len(item) < 5:
             raise Exception("[line:{}] {}".format(i+1, line))
 
-        if item[2] in BOSSES:
-            chart.append(item[:5])
-        else:
+        if item[2] not in BOSSES:
             raise Exception("[line:{}] {}".format(i+1, line))
-            
+
         try:
             int(item[1])
             int(item[3])
-            float(item[4])
+            rate = float(item[4])
         except:
             raise Exception("[line:{}] {}".format(i+1, line))
+        # nan / inf の与ダメージ率は書いていないのと同じ 1.0 にする (nan は得点計算で落ちるため)
+        if not math.isfinite(rate):
+            item = item[:4] + ("1.0",)
+        chart.append(item[:5])
 
     return chart, constant
 

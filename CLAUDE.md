@@ -193,7 +193,7 @@ A Claude Code skill for writing plans by hand with Claude, independent of the ap
 - An action line has the form `player_id,wait_seconds,boss,battle_seconds[,score_rate][,lock|unlock[,note]]`. `split_action` splits it: a 5th field that is `lock`/`unlock` (case-insensitive) is the lock word, not the rate; everything after the lock word is the note (it may contain commas). Any other extra field is a parse error (trailing empty fields are ignored). The lock and the note are editor/tracker data only; `parse` returns just the first 5 fields, so the chart is unchanged. The older `#lock` / `#note <text>` comment lines after the action line are still read and override the inline values.
   - `boss` must be one of `1st_boss`, `2nd_boss`, `3rd_boss`, or `Realm_boss`.
   - `wait_seconds` is added to that player's running clock before the push. Each push then advances the clock by `timelag + 300` (the cooldown).
-  - `score_rate` defaults to `1.0`. A value below 1 draws a checkered pattern and a percentage on the battle.
+  - `score_rate` defaults to `1.0`. A non-finite value (`nan`, `inf`) is replaced with `1.0` by `parse` (and `simulate.py`); a value that isn't a number is still a parse error. A value below 1 draws a checkered pattern and a percentage on the battle.
   - A player ID has the form `<Team><2 chars>`, for example `Alpha01`. The team name is `raw_name[:-2]`, and team colors come from `config.json` → `team.team_color`.
 
 ## Architecture (`ChartLib.py`)
