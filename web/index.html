@@ -79,6 +79,8 @@
   <div class="modal-box">
     <div class="row">
       <a id="download-png" class="btn primary" download="chart.png">PNG をダウンロード</a>
+      <button id="btn-copy-png" type="button" title="画像をクリップボードにコピーします。Discord などに Ctrl+V で貼れます">画像をコピー</button>
+      <button id="btn-post-discord" type="button" title="Discord のウェブフックへ画像を投稿します">Discord に投稿</button>
       <span class="grow"></span>
       <button id="btn-close-modal">閉じる</button>
     </div>
@@ -135,6 +137,27 @@
     <button id="stats-close" type="button">閉じる</button>
   </div>
   <div id="stats-body" class="stats-body"></div>
+</dialog>
+
+<dialog id="post-dialog" class="auto-dialog post-dialog">
+  <div class="row">
+    <b class="auto-title">Discord に投稿</b>
+    <span class="grow"></span>
+    <button id="post-close" type="button">閉じる</button>
+  </div>
+  <p class="hint">チャンネルの「連携サービス → ウェブフック」で作った URL を入れてください。スレッドに投稿するときは URL の末尾に <code>?thread_id=スレッドのID</code> を付けます。URL はこのブラウザにだけ保存し、サーバーには送りません。投稿者はウェブフックの名前になります。</p>
+  <label class="field">ウェブフック URL
+    <input id="post-webhook" type="url" placeholder="https://discord.com/api/webhooks/..." autocomplete="off" spellcheck="false">
+  </label>
+  <label class="field">メッセージ (省略可)
+    <textarea id="post-message" rows="3" maxlength="2000"></textarea>
+  </label>
+  <label><input id="post-link" type="checkbox"> 共有URLのリンクを付ける (コメントの文字がリンクになります)</label>
+  <label><input id="post-text" type="checkbox"> 作戦のテキスト (.txt) も添付する</label>
+  <div class="row">
+    <button id="post-send" class="primary" type="button">投稿</button>
+    <span id="post-result" class="muted"></span>
+  </div>
 </dialog>
 
 <script src="/static/common.js"></script>

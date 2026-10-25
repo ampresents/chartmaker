@@ -576,7 +576,77 @@ def test_session_notes(client):
 def test_notify_appends_battle_note(client, sent):
     sid = create_noted_session(client)
     notify(client, sid, 1, 4)
-    assert sent[0][1]["content"] == "Alpha01、Beta01、準備して下さい。Alpha01: 2 体目は同時に。Beta01: 最後"
+    # 読み上げは 50 文字までなので、句読点の後ろで 2 通に分ける
+    assert [p["content"] for _, p in sent] == ["Alpha01、Beta01、準備して下さい。Alpha01: 2 体目は同時に。",
+                                              "Beta01: 最後"]
+
+
+@pytest.mark.parametrize("text, parts", [
+    ("Alpha01、準備して下さい", ["Alpha01、準備して下さい"]),
+    ("あ" * 30 + "、" + "い" * 30 + "。", ["あ" * 30 + "、", "い" * 30 + "。"]),
+    ("あ" * 120, ["あ" * 50, "あ" * 50, "あ" * 20]),  # 区切りが無ければ文字数で切る
+    ("注意: " + "word " * 15, ["注意: " + " ".join(["word"] * 9), " ".join(["word"] * 6)]),  # 長い文は空白で
+    ("", []),
+])
+def test_split_tts(text, parts):
+    assert app_module.split_tts(text) == parts
+    assert all(len(p) <= app_module.TTS_MAX for p in parts)
+
+
+def test_notify_long_message_is_split_and_cleared(client, sent, deleted):
+    sid = create_noted_session(client)
+    notify(client, sid, 1, 4)
+    assert [p["tts"] for _, p in sent] == [True, True]
+    # 分けて送った通知は、出撃したら全部消す
+    assert clear(client, sid, 4).json["cleared"] == 2
+    assert deleted == [(WEBHOOK, "m1"), (WEBHOOK, "m2")]
+    assert clear(client, sid, 1).json["cleared"] == 0
+
+
+def test_notify_long_message_is_deleted_with_session(client, sent, deleted):
+    sid = create_noted_session(client)
+    notify(client, sid, 1, 4)
+    assert client.delete("/api/sessions/" + sid).json["cleared"] == 2
+    assert deleted == [(WEBHOOK, "m1"), (WEBHOOK, "m2")]
+
+
+def test_notify_long_message_without_tts_is_not_split(client, sent):
+    r = client.post("/api/sessions", json={"text": NOTED, "start_epoch_ms": 0, "discord_webhook": WEBHOOK,
+                                           "notify_tts": False})
+    notify(client, r.json["id"], 1, 4)
+    assert [p["content"] for _, p in sent] == ["Alpha01、Beta01、準備して下さい。Alpha01: 2 体目は同時に。Beta01: 最後"]
+
+
+def test_notify_stops_after_failed_part(client, sent, deleted, monkeypatch):
+    calls = []
+
+    def send(url, payload):
+        calls.append(payload["content"])
+        if len(calls) == 2:
+            raise OSError("down")
+        return "m{}".format(len(calls))
+    monkeypatch.setattr(app_module, "send_discord", send)
+    sid = create_noted_session(client)
+    assert notify(client, sid, 1, 4).status_code == 200
+    assert len(calls) == 2  # 途中で失敗したら残りは送らない
+    assert clear(client, sid, 1).json["cleared"] == 1  # 送れた分は消す
+    assert deleted == [(WEBHOOK, "m1")]
+
+
+def test_send_discord_retries_rate_limit(monkeypatch):
+    import io
+    import urllib.error
+    calls, waits = [], []
+
+    def request(method, url, payload=None):
+        calls.append(url)
+        if len(calls) == 1:
+            raise urllib.error.HTTPError(url, 429, "Too Many Requests", {}, io.BytesIO(b'{"retry_after": 0.4}'))
+        return b'{"id": "m1"}'
+    monkeypatch.setattr(app_module, "discord_request", request)
+    monkeypatch.setattr(app_module.time, "sleep", waits.append)
+    assert app_module.send_discord(WEBHOOK, {}) == "m1"
+    assert calls == [WEBHOOK + "?wait=true"] * 2 and waits == [0.4]
 
 
 def notify_note(client, sid, *notes):

@@ -10,8 +10,10 @@ const MAX_BATTLE = 300;
 const STORAGE_KEY = "chartmaker.draft.v1";
 const SEP = "################################";
 const REGULAR_BOSSES = BOSSES.slice(0, 3);
-const SNAP_PX = 10;        // ドラッグがこの px 以内に近づいたら推定位置に吸着する
+const SNAP_PX = 5;         // ドラッグがこの px 以内に近づいたら推定位置に吸着する
 const SNAP_MARGIN = 6;     // 撃破の何秒後に吸着させるかの既定値
+const DEFAULT_TIMELAG = 1; // 新しい作戦の timelag (出撃ボタンから戦闘開始までのずれ)
+const MAX_TIMELAG = 30;
 
 let CONFIG = null;
 let IMAGES = [];
@@ -93,7 +95,7 @@ function defaultState() {
     constants: {
       comment: CONFIG.comment,
       start_time: "",
-      timelag: String(CONFIG.timelag),
+      timelag: String(DEFAULT_TIMELAG),
       "1st_boss": "blue", "2nd_boss": "red", "3rd_boss": "green", "Realm_boss": "yellow",
       image_1st: blank, image_2nd: blank, image_3rd: blank, image_realm: blank,
       display_team: false, display_boss: false, display_party: false,
@@ -514,6 +516,15 @@ function toggleLock(a) {
   else a.locked = true;
 }
 
+// timelag を変える。各戦闘の出撃時刻は保ち、前の戦闘との間が timelag + 300 秒に満たない戦闘だけ後ろへ押し出す
+function setTimelag(v) {
+  state.constants.timelag = String(v);
+  const len = blockLen();
+  state.players.forEach((p) => p.actions.forEach((a, i) => {
+    if (i) a.start = Math.max(a.start, p.actions[i - 1].start + len);
+  }));
+}
+
 // ---------------------------------------------------------------- スナップ（推定位置への吸着）
 
 // ChartLib.calc_level の JS 版。exclude ("p:a" の Set) を除いた戦闘で階の進行を再現し、
@@ -706,12 +717,15 @@ async function importText(text) {
   }
 }
 
+let previewBlob = null; // プレビュー中の PNG。コピーと Discord への投稿に使う
+
 async function renderImage() {
   const btn = $("#btn-render");
   btn.disabled = true;
   btn.textContent = "生成中…";
   try {
     const blob = await (await api("/api/render", { text: toText() })).blob();
+    previewBlob = blob;
     const url = URL.createObjectURL(blob);
     const old = $("#preview").src;
     if (old.startsWith("blob:")) URL.revokeObjectURL(old);
@@ -1164,6 +1178,15 @@ function renderSettings() {
       title: "ゲームの開始時刻。進行管理で使います",
       onchange: (e) => mutate(() => { c.start_time = e.target.value; }),
     })),
+    field("timelag(秒)", h("input", {
+      type: "number", min: 0, max: MAX_TIMELAG, value: timelag(),
+      title: "出撃ボタンを押してから戦闘が始まるまでのずれ。再出撃は出撃の timelag + 300 秒後なので、同じ列の戦闘はこの秒数より近づけられません。小さくすると間が空き、大きくすると近すぎる戦闘を後ろへ押し出します",
+      onchange: (e) => {
+        const v = clamp(parseInt(e.target.value) || 0, 0, MAX_TIMELAG);
+        if (v === timelag()) { e.target.value = v; return; }
+        mutate(() => setTimelag(v));
+      },
+    })),
     field("スナップの余裕(秒)", h("input", {
       type: "number", min: 0, max: 60, value: snapMargin,
       title: "ドラッグで Realm や次の階の 1st/2nd/3rd を置くとき、直前のボスの撃破から何秒あけた位置に吸着させるか。このブラウザにだけ保存し、作戦には含めません",
@@ -1489,15 +1512,115 @@ function discordLink(url) {
   return `[${label}](${url})`;
 }
 
-// discord = true なら Discord 用のリンク形式で、false なら URL だけをコピーする
-async function copyShareUrl(btn, discord) {
-  const url = `${location.origin}${location.pathname}${await encodePlan()}`;
-  await navigator.clipboard.writeText(discord ? discordLink(url) : url);
-  showStatus(null);
+async function shareUrl() {
+  return `${location.origin}${location.pathname}${await encodePlan()}`;
+}
+
+// ボタンの文字を 1.5 秒だけ text に変える
+function flashLabel(btn, text) {
   btn.dataset.label ??= btn.textContent;
-  btn.textContent = "コピーしました";
+  btn.textContent = text;
   clearTimeout(btn.copyTimer);
   btn.copyTimer = setTimeout(() => { btn.textContent = btn.dataset.label; }, 1500);
+}
+
+// discord = true なら Discord 用のリンク形式で、false なら URL だけをコピーする
+async function copyShareUrl(btn, discord) {
+  const url = await shareUrl();
+  await navigator.clipboard.writeText(discord ? discordLink(url) : url);
+  showStatus(null);
+  flashLabel(btn, "コピーしました");
+}
+
+// ---------------------------------------------------------------- 画像のコピーと Discord への投稿
+
+async function copyPreviewImage(btn) {
+  if (!previewBlob) return;
+  if (typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) {
+    showStatus("このブラウザは画像のコピーに対応していません。PNG をダウンロードしてください");
+    return;
+  }
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": previewBlob })]);
+    showStatus(null);
+    flashLabel(btn, "コピーしました");
+  } catch (e) {
+    showStatus(`画像をコピーできませんでした: ${e.message}`);
+  }
+}
+
+// ウェブフックへはブラウザから直接送る (Discord は CORS を許している)。URL はサーバーに渡さない
+const POST_WEBHOOK_KEY = "chartmaker.post.webhook";
+const POST_OPTS_KEY = "chartmaker.post.opts";
+const POST_TRACKER_WEBHOOK_KEY = "chartmaker.tracker.webhook"; // 進行管理で入れた URL を初期値にする
+const POST_WEBHOOK = /^https:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/\d+\/[\w-]+\/?(?:\?\S*)?$/;
+const POST_CONTENT_MAX = 2000; // Discord のメッセージの文字数の上限
+
+function postStorage(key, value) {
+  try {
+    if (value === undefined) return localStorage.getItem(key);
+    localStorage.setItem(key, value);
+  } catch (e) { /* 保存できなくても投稿はできる */ }
+  return null;
+}
+
+function postResult(msg, error) {
+  const el = $("#post-result");
+  el.textContent = msg;
+  el.classList.toggle("error", !!error);
+}
+
+function openPostDialog() {
+  if (!previewBlob) return;
+  $("#post-webhook").value = postStorage(POST_WEBHOOK_KEY) || postStorage(POST_TRACKER_WEBHOOK_KEY) || "";
+  let opts = {};
+  try { opts = JSON.parse(postStorage(POST_OPTS_KEY)) || {}; } catch (e) { /* 既定のまま */ }
+  $("#post-link").checked = opts.link ?? true;
+  $("#post-text").checked = opts.text ?? false;
+  postResult("");
+  $("#post-dialog").showModal();
+}
+
+async function postToDiscord() {
+  const hook = $("#post-webhook").value.trim();
+  if (!POST_WEBHOOK.test(hook)) {
+    postResult("ウェブフック URL が正しくありません (https://discord.com/api/webhooks/... の形)", true);
+    return;
+  }
+  const link = $("#post-link").checked, attachText = $("#post-text").checked;
+  postStorage(POST_WEBHOOK_KEY, hook);
+  postStorage(POST_OPTS_KEY, JSON.stringify({ link, text: attachText }));
+  const parts = [$("#post-message").value.trim()];
+  if (link) parts.push(discordLink(await shareUrl()));
+  const content = parts.filter(Boolean).join("\n");
+  if (content.length > POST_CONTENT_MAX) {
+    postResult(`メッセージが ${content.length} 文字で、Discord の上限 ${POST_CONTENT_MAX} 文字を超えます。`
+      + (link ? "共有URLのリンクを外し、テキストを添付してください" : "短くしてください"), true);
+    return;
+  }
+  const form = new FormData();
+  form.append("payload_json", JSON.stringify({ content, allowed_mentions: { parse: [] } }));
+  form.append("files[0]", previewBlob, `${dateStem()}.png`);
+  if (attachText) form.append("files[1]", new Blob([toText()], { type: "text/plain" }), `${dateStem()}.txt`);
+  const url = new URL(hook);
+  url.searchParams.set("wait", "true"); // 失敗したときに理由を返してもらう
+  const btn = $("#post-send");
+  btn.disabled = true;
+  postResult("投稿中…");
+  try {
+    const res = await fetch(url, { method: "POST", body: form });
+    if (!res.ok) {
+      let reason = "";
+      try { reason = (await res.json()).message || ""; } catch (e) { /* 本文なし */ }
+      postResult(`投稿できませんでした (${res.status}${reason ? `: ${reason}` : ""})`, true);
+      return;
+    }
+    postResult("投稿しました");
+  } catch (e) {
+    postResult(`投稿できませんでした: ${e.message}`, true);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // URL に #p= / #plan= があれば読み込み、ハッシュは消す (再読み込みで何度も取り込まないように)
@@ -1560,6 +1683,10 @@ function bindUI() {
   window.addEventListener("hashchange", loadSharedPlan);
   $("#btn-close-modal").addEventListener("click", () => { $("#modal").hidden = true; });
   $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") $("#modal").hidden = true; });
+  $("#btn-copy-png").addEventListener("click", (e) => copyPreviewImage(e.currentTarget));
+  $("#btn-post-discord").addEventListener("click", openPostDialog);
+  $("#post-close").addEventListener("click", () => $("#post-dialog").close());
+  $("#post-send").addEventListener("click", postToDiscord);
 
   const text = $("#text");
   text.addEventListener("input", () => {

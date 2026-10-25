@@ -8,6 +8,7 @@ import re
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 from collections import OrderedDict, deque
 
@@ -414,8 +415,20 @@ def discord_request(method, url, payload=None):
 
 
 def send_discord(webhook, payload):
-    """メッセージを送り、あとで消せるようにメッセージ ID を返す (wait=true で本文が返る)"""
-    return json.loads(discord_request("POST", webhook + "?wait=true", payload))["id"]
+    """メッセージを送り、あとで消せるようにメッセージ ID を返す (wait=true で本文が返る)。
+    分けて続けて送ると Webhook の流量制限 (429) に当たることがあるので、言われた秒数だけ待って 1 回やり直す"""
+    url = webhook + "?wait=true"
+    try:
+        return json.loads(discord_request("POST", url, payload))["id"]
+    except urllib.error.HTTPError as e:
+        if e.code != 429:
+            raise
+        try:
+            wait = float(json.loads(e.read()).get("retry_after", 1))
+        except Exception:
+            wait = 1
+        time.sleep(min(max(wait, 0), DISCORD_RETRY_MAX))
+        return json.loads(discord_request("POST", url, payload))["id"]
 
 
 def delete_discord(webhook, message_id):
@@ -684,34 +697,78 @@ def index_list(v, limit):
 
 
 DISCORD_CONTENT_MAX = 2000
+DISCORD_RETRY_MAX = 3  # 429 のとき待つ最大秒数
+# Discord の読み上げは 1 通 50 文字までで、超えると「以下略」と読まれる。長い通知は区切って何通かに分ける
+TTS_MAX = 50
+TTS_PARTS_MAX = 10  # 1 回の通知で送る最大の通数 (これより後ろは送らない)
+TTS_SENTENCE = re.compile(r"[^、。，,．！？!?]+[、。，,．！？!?]*|[、。，,．！？!?]+")
+TTS_WORD = re.compile(r"\S+\s*|\s+")
+
+
+def split_tts(text, limit=TTS_MAX):
+    """読み上げ用の本文を limit 文字以内に分ける。句読点の後ろで区切り、それでも長い部分は空白、
+    空白も無ければ文字数で切る"""
+    pieces = []
+    for part in TTS_SENTENCE.findall(text):
+        pieces += TTS_WORD.findall(part) if len(part.rstrip()) > limit else [part]
+    chunks = [""]
+    for piece in pieces:
+        if chunks[-1].strip() and len(chunks[-1]) + len(piece.rstrip()) > limit:
+            chunks.append("")
+        chunks[-1] += piece
+        while len(chunks[-1].rstrip()) > limit:
+            head = chunks[-1]
+            chunks[-1:] = [head[:limit], head[limit:]]
+    return [c.strip() for c in chunks if c.strip()]
+
+
+def message_ids(m):
+    """messages の 1 件のメッセージ ID (分けて送った通知は ids に全部ある)"""
+    return m.get("ids") or [m["id"]]
 
 
 def send_and_remember(sid, doc, content, keys):
-    """Discord へ 1 通送り、あとで消せるよう messages[key] にメッセージ ID を覚える。送れなければ何もしない"""
-    payload = {
-        "content": content[:DISCORD_CONTENT_MAX],
-        "tts": doc["discord"].get("tts", True),  # tts を持たない古いセッションは読み上げる
-        "allowed_mentions": {"parse": []},  # 名前に @everyone などがあっても通知しない
-    }
-    try:
-        message_id = send_discord(doc["discord"]["webhook"], payload)
-    except Exception as e:
-        print("Discord への通知に失敗しました:", repr(e))
-        return doc
-    if not message_id:
+    """Discord へ送り、あとで消せるよう messages[key] にメッセージ ID を覚える。送れなければ何もしない。
+    読み上げるときは TTS_MAX 文字ずつに分けて、続けて送る"""
+    tts = doc["discord"].get("tts", True)  # tts を持たない古いセッションは読み上げる
+    content = content[:DISCORD_CONTENT_MAX]
+    parts = split_tts(content) if tts else [content]
+    if len(parts) > TTS_PARTS_MAX:
+        print("Discord への通知が長いので {} 通目以降を送りません".format(TTS_PARTS_MAX + 1))
+        parts = parts[:TTS_PARTS_MAX]
+    webhook = doc["discord"]["webhook"]
+    ids = []
+    for part in parts:
+        payload = {
+            "content": part,
+            "tts": tts,
+            "allowed_mentions": {"parse": []},  # 名前に @everyone などがあっても通知しない
+        }
+        try:
+            message_id = send_discord(webhook, payload)
+        except Exception as e:
+            print("Discord への通知に失敗しました:", repr(e))
+            break  # 途中が抜けると意味が通らないので、残りは送らない
+        if message_id:
+            ids.append(str(message_id))
+    if not ids:
         return doc
 
-    # 出撃したら消すので、送ったメッセージを戦闘ごとに覚えておく (まとめた戦闘は同じ ID)
+    # 出撃したら消すので、送ったメッセージを戦闘ごとに覚えておく (まとめた戦闘は同じ ID)。
+    # 分けて送った通知は先頭の ID でまとまりを見分け、ids を全部消す
     def remember(doc):
         messages = doc.setdefault("messages", {})
         for k in keys:
-            messages[k] = {"id": str(message_id), "at": time.time()}
+            messages[k] = {"id": ids[0], "at": time.time()}
+            if len(ids) > 1:
+                messages[k]["ids"] = ids
         return doc
     try:
         return store.update(sid, remember)
     except NotFound:
         # 送っている間にセッションが破棄された。消す機会がもう無いので、すぐ消す
-        delete_discord_quietly(doc["discord"]["webhook"], message_id)
+        for message_id in ids:
+            delete_discord_quietly(webhook, message_id)
         raise
 
 
@@ -768,9 +825,10 @@ def api_session_notify_clear(sid):
         return doc
 
     doc = store.update(sid, apply)
-    for message_id in dict.fromkeys(m["id"] for m in removed):
+    ids = list(dict.fromkeys(i for m in removed for i in message_ids(m)))
+    for message_id in ids:
         delete_discord_quietly(doc["discord"]["webhook"], message_id)
-    return jsonify(version=doc["version"], cleared=len(set(m["id"] for m in removed)), server_now=now_ms())
+    return jsonify(version=doc["version"], cleared=len(ids), server_now=now_ms())
 
 
 @app.delete("/api/sessions/<sid>")
@@ -780,7 +838,7 @@ def api_session_delete(sid):
     doc = store.delete(sid)
     chart_cache.drop(sid)
     # まだ消していない通知メッセージも消す
-    ids = list(dict.fromkeys(m["id"] for m in (doc.get("messages") or {}).values()))
+    ids = list(dict.fromkeys(i for m in (doc.get("messages") or {}).values() for i in message_ids(m)))
     for message_id in ids:
         delete_discord_quietly(doc["discord"]["webhook"], message_id)
     return jsonify(deleted=True, cleared=len(ids), server_now=now_ms())

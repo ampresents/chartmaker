@@ -165,6 +165,12 @@ body.resizing { cursor: col-resize; user-select: none; }
 .modal-img { flex: 1; overflow: auto; background: #000; }
 .modal-img img { width: 100%; display: block; }
 
+/* Discord への投稿 */
+.post-dialog { width: min(560px, calc(100vw - 32px)); }
+.post-dialog .field { grid-template-columns: 120px 1fr; }
+.post-dialog textarea { width: 100%; resize: vertical; }
+#post-result.error { color: var(--danger); }
+
 /* 作戦の自動作成 */
 .auto-dialog { background: var(--panel); color: var(--fg); border: 1px solid var(--accent); border-radius: 8px;
   padding: 14px 16px; width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 32px); }
