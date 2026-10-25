@@ -10,6 +10,7 @@ const MAX_BATTLE = 300;
 const STORAGE_KEY = "chartmaker.draft.v1";
 const SEP = "################################";
 const REGULAR_BOSSES = BOSSES.slice(0, 3);
+const INFO_LINE = 13;      // ブロック内の文字 1 行の高さ (px)。app.css の .block .info の line-height と同じ
 const SNAP_PX = 5;         // ドラッグがこの px 以内に近づいたら推定位置に吸着する
 const SNAP_MARGIN = 6;     // 撃破の何秒後に吸着させるかの既定値
 const DEFAULT_TIMELAG = 1; // 新しい作戦の timelag (出撃ボタンから戦闘開始までのずれ)
@@ -791,7 +792,7 @@ function render() {
       class: "note-band",
       style: { top: `${n.start * scale}px`, height: `${Math.max((n.end - n.start) * scale, 2)}px`, left: `${(i % 3) * 5}px` },
       title: `📝 ${clock(n.start)}–${clock(n.end)} ${n.text}`,
-      onclick: () => switchTab("settings"),
+      onclick: () => switchTab("settings", true),
     }));
   });
   const cols = [h("div", { class: "axis" }, h("div", { class: "col-head" }), axisBody)];
@@ -874,6 +875,10 @@ function render() {
           a.rate < 1 ? h("span", { class: "rate" }, ` ${Math.round(Math.max(a.rate, 0) * 100)}%`) : null,
           a.note ? " 📝" : null),
         d ? h("div", {}, h("span", { class: "lv" }, `Lv${String(d.level).padStart(2, "0")} `), h("span", { class: "score" }, fmt(d.est_score))) : null));
+      // 下端: クール明け（再出撃できる時刻 = ブロックの下端）。上の 3 行と重なる倍率では出さない
+      if (len * scale >= lag * scale + 1 + (d ? 3 : 2) * INFO_LINE + INFO_LINE + 2) {
+        block.append(h("div", { class: "cool-off" }, clock(a.start + len)));
+      }
       body.append(block);
     });
 
@@ -1269,8 +1274,10 @@ function updateText() {
   $("#text").value = toText();
 }
 
-function switchTab(name) {
-  document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
+// reveal: 隠したパネルを表示してから切り替える（ブロックのクリックなどでは隠したまま）
+function switchTab(name, reveal = false) {
+  if (reveal) setSideHidden(false);
+  document.querySelectorAll(".tabs button[data-tab]").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
   document.querySelectorAll(".panel").forEach((p) => { p.hidden = p.id !== `panel-${name}`; });
 }
 
@@ -1655,7 +1662,7 @@ async function openSample() {
 
 function bindUI() {
   $("#btn-sample").addEventListener("click", openSample);
-  document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
+  document.querySelectorAll(".tabs button[data-tab]").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
   $("#btn-new").addEventListener("click", () => { if (confirm("今の作戦を破棄して新規作成しますか？（元に戻すで復元できます）")) replaceState(defaultState()); });
   $("#file-open").addEventListener("change", async (e) => {
     const f = e.target.files[0];
@@ -1706,6 +1713,7 @@ function bindUI() {
   });
 
   bindSplitter();
+  bindSideToggle();
 
   document.addEventListener("keydown", (e) => {
     if (e.target.closest("input, textarea, select, #splitter, #picker, dialog")) return;
@@ -1794,6 +1802,23 @@ function bindSplitter() {
   });
   // ウィンドウを狭めても作戦ビューが潰れないよう縮め、広げたら好みの幅に戻す
   window.addEventListener("resize", () => setWidth(preferred, false));
+}
+
+// 右のパネルの表示・非表示。幅と同じく閲覧者ごとの好みとして localStorage に残す
+const SIDE_HIDDEN_KEY = "chartmaker.sideHidden";
+
+function setSideHidden(hidden) {
+  document.body.classList.toggle("side-hidden", hidden);
+  $("#side-show").hidden = !hidden;
+  try { localStorage.setItem(SIDE_HIDDEN_KEY, hidden ? "1" : "0"); } catch (e) { /* 保存できなくても動作は続ける */ }
+}
+
+function bindSideToggle() {
+  let hidden = false;
+  try { hidden = localStorage.getItem(SIDE_HIDDEN_KEY) === "1"; } catch (e) { /* 表示したまま */ }
+  setSideHidden(hidden);
+  $("#side-hide").addEventListener("click", () => setSideHidden(true));
+  $("#side-show").addEventListener("click", () => setSideHidden(false));
 }
 
 async function init() {

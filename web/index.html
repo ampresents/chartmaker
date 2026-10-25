@@ -60,6 +60,7 @@
       <button data-tab="select" class="active">選択</button>
       <button data-tab="settings">設定</button>
       <button data-tab="text">テキスト</button>
+      <button id="side-hide" class="side-hide" type="button" title="パネルを隠して作戦ビューを広げる" aria-label="パネルを隠す">»</button>
     </nav>
     <div class="panel" id="panel-select"></div>
     <div class="panel" id="panel-settings" hidden></div>
@@ -73,6 +74,7 @@
       </div>
     </div>
   </aside>
+  <button id="side-show" type="button" hidden title="パネルを表示する" aria-label="パネルを表示する"><span class="arrow">«</span><span class="label">パネル</span></button>
 </main>
 
 <div id="modal" hidden>

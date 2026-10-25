@@ -56,7 +56,16 @@ main { flex: 1; display: flex; min-height: 0; }
 body.resizing { cursor: col-resize; user-select: none; }
 #side { flex: none; width: var(--side-w); background: var(--panel); border-left: 1px solid var(--line);
   display: flex; flex-direction: column; min-height: 0; }
+body.side-hidden #side, body.side-hidden #splitter { display: none; }
+/* パネルを隠している間、パネルのあった右端に出る細い帯。どこを押しても表示に戻る */
+#side-show { flex: none; width: 26px; padding: 10px 0; border: 0; border-left: 1px solid var(--line); border-radius: 0;
+  background: var(--panel); color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 8px; }
+#side-show:hover, #side-show:focus-visible { background: var(--panel2); color: var(--accent); }
+#side-show .arrow { font-size: 16px; line-height: 1; }
+#side-show .label { writing-mode: vertical-rl; letter-spacing: 2px; }
 .tabs { display: flex; border-bottom: 1px solid var(--line); }
+.tabs .side-hide { flex: none; width: 32px; padding: 8px 0; color: var(--muted); font-size: 16px; line-height: 1; }
+.tabs .side-hide:hover, .tabs .side-hide:focus-visible { color: var(--accent); background: var(--panel2); }
 .tabs button { flex: 1; border: 0; border-radius: 0; background: transparent; padding: 8px; }
 .tabs button.active { background: var(--panel2); color: var(--accent); box-shadow: inset 0 -2px var(--accent); }
 .panel { padding: 12px; overflow: auto; flex: 1; display: flex; flex-direction: column; gap: 10px; }
@@ -155,6 +164,9 @@ body.resizing { cursor: col-resize; user-select: none; }
 .block .info .lv { color: rgb(0, 255, 255); }
 .block .info .score { color: rgb(60, 255, 255); }
 .block .info .rate { color: #fff; font-weight: bold; }
+/* 下端のクール明け時刻。line-height は INFO_LINE (app.js) と同じ */
+.block .cool-off { position: absolute; right: 4px; bottom: 2px; pointer-events: none; font-size: 11px; line-height: 13px;
+  color: #ddd; text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 3px #000; white-space: nowrap; }
 .drag-tip { position: fixed; z-index: 20; pointer-events: none; background: #000c; border: 1px solid var(--accent);
   padding: 2px 6px; border-radius: 3px; font-size: 12px; }
 
