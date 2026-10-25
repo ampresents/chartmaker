@@ -44,6 +44,20 @@ def test_detail(client):
     assert [d["level"] for d in r.json["detail"]] == [1, 1, 1, 1, 2]
 
 
+def test_rate_one_written_out(client):
+    # エディタは割合 1 も 1.00 と書き出す。省略した作戦と同じレベル・得点になり、進行管理も作れる
+    written = "\n".join(line + ",1.00,unlock,注意" if not line.startswith(("#", "::")) and line.count(",") == 3
+                        else line for line in PLAN.splitlines())
+    assert written != PLAN
+    pick = lambda ds: [(d["level"], d["score"], d["est_score"]) for d in ds]
+    base, got = (client.post("/api/detail", json={"text": t}).json["detail"] for t in (PLAN, written))
+    assert pick(got) == pick(base)
+    r = client.post("/api/sessions", json={"text": written, "start_epoch_ms": 1_700_000_000_000})
+    assert r.status_code == 200
+    plan = client.get("/api/sessions/" + r.json["id"]).json["plan"]
+    assert {d.get("note") for d in plan["detail"]} >= {"注意"}
+
+
 @pytest.mark.parametrize("change, message", [
     (("::Realm_boss=blue", "::Realm_boss=purple"), "::Realm_boss="),
     (("::comment=plain", "::timelag=x"), "::timelag"),

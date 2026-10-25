@@ -81,6 +81,20 @@ def test_split_action(line, expected):
     assert split_action(line) == expected
 
 
+@pytest.mark.parametrize("rate", ["1", "1.0", "1.00", "1.000"])
+def test_parse_rate_one_written_out(rate):
+    # エディタは割合 1 も 1.00 と書き出す。省略したときと同じ得点・レベルになり、後ろのロックと注意点も読める
+    text = "::timelag=0\nA01,5,1st_boss,30{}\nB01,5,2nd_boss,30{}\nC01,5,3rd_boss,30{}\nD01,40,Realm_boss,30{}\n"
+    omitted, _ = parse(lines(text.format("", "", "", "")))
+    written, _ = parse(lines(text.format("," + rate, ",{},lock".format(rate), ",{},unlock,注意,点".format(rate),
+                                         ",{},最優先".format(rate))))
+    assert [c[4] for c in written] == [rate] * 4
+    strip = lambda ds: [{k: v for k, v in d.items() if k != "score_rate"} for d in ds]
+    assert strip(generate_detail(written, {"timelag": "0"})) == strip(generate_detail(omitted, {"timelag": "0"}))
+    assert split_action("A01,0,1st_boss,30,{},unlock,注意,点".format(rate)) == (
+        ("A01", "0", "1st_boss", "30", rate), False, "注意,点")
+
+
 @pytest.mark.parametrize("line", [
     "Alpha01,5,4th_boss,30",     # 不明なボス
     "Alpha01,x,1st_boss,30",     # 待ち秒数が整数でない
@@ -166,7 +180,7 @@ def test_generate_detail_score_is_capped_at_level_21():
     assert {d["score"] for d in detail if d["level"] >= 21 and d["action"] == "1st_boss"} == {250000}
 
 
-@pytest.mark.parametrize("rate, est", [("1.0", 50000), ("0.333", 16650), ("1.5", 50000), ("-1", 0)])
+@pytest.mark.parametrize("rate, est", [("1.0", 50000), ("1.00", 50000), ("1", 50000), ("0.333", 16650), ("1.5", 50000), ("-1", 0)])
 def test_est_score_rate_is_clamped(rate, est):
     (d,) = generate_detail([cmd("A01", 1, "1st_boss", 10, rate)], {"timelag": "0"})
     assert d["est_score"] == est

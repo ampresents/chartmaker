@@ -250,7 +250,8 @@ function toText(st = state) {
     let prevEnd = 0;
     for (const a of p.actions) {
       let line = `${p.id},${a.start - prevEnd},${a.boss},${a.battle}`;
-      if (a.rate !== 1) line += `,${a.rate}`;
+      // 割合は省略できるが、読む人にわかるよう 1 も 1.00 と書く
+      line += `,${a.rate === 1 ? "1.00" : a.rate}`;
       // ロックと注意点は同じ行の末尾に書く（注意点だけなら unlock を挟む）
       const note = noteText(a.note);
       if (a.locked || note) line += `,${a.locked ? "lock" : "unlock"}`;

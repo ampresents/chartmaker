@@ -37,3 +37,22 @@ def test_chart_matches_golden(name, config, tmp_path):
         ys, xs = np.nonzero(diff)
         pytest.fail("{} 画素が違います (x {}-{}, y {}-{})。実際の画像と差分: {}".format(
             int(diff.sum()), xs.min(), xs.max(), ys.min(), ys.max(), tmp_path))
+
+
+def test_chart_rate_one_written_out(config, tmp_path):
+    # 割合を省いた行に 1.00 を書き足しても (エディタの書き出し)、画像は 1 画素も変わらない
+    out = []
+    with open(os.path.join(FIXTURES, "plan_full.txt"), encoding="utf-8") as f:
+        for line in f.read().splitlines():
+            if not line.startswith(("#", "::")) and line.count(",") == 3:
+                line += ",1.00"
+            out.append(line)
+    assert any(line.endswith(",1.00") for line in out)
+    src = tmp_path / "plan.txt"
+    src.write_text("\n".join(out) + "\n", encoding="utf-8")
+    actual_path = str(tmp_path / "full.png")
+    generate_chart(str(src), actual_path, config)
+    actual = cv2.imread(actual_path)
+    golden = cv2.imread(os.path.join(GOLDEN, "full.png"))
+    assert actual.shape == golden.shape
+    assert not np.any(actual != golden)
