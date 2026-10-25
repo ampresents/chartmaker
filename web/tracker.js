@@ -166,8 +166,9 @@ const readyAt = (s) => s.at + (s.x.battle_start - s.x.push_start) + COOL_TIME + 
 
 // 討伐記録から各戦闘の実際の出撃を見積もる。出撃は次の条件がすべてそろった時点:
 //   作戦の出撃時刻 / 前の戦闘の出撃からクールタイム明け (readyAt) / 前の戦闘のボスが討伐済み / 挑戦先のボスに挑戦可能
-// 作戦は討伐から余裕を置いて出撃するように作られているので、討伐 (開放) が作戦より遅れたら、その余裕を保って
-// 出撃も同じ秒数だけ遅らせる (作戦が 1:00 討伐・1:06 出撃で、討伐が 1:02 なら出撃は 1:08)。早まっても作戦より早めない。
+// 作戦は開放から余裕を置いて出撃するように作られているので、挑戦先の開放が作戦より遅れたら、その余裕を保って
+// 出撃も同じ秒数だけ遅らせる (作戦が 1:00 開放・1:06 出撃で、開放が 1:02 なら出撃は 1:08)。早まっても作戦より早めない。
+// 前の戦闘のボスの討伐は、その時刻そのものを待つ (余裕は足さない)。
 // 手で補正した出撃 (starts) があればそれを実際の出撃とし、後の戦闘にも持ち越す。
 // 戦闘は対象ボスの討伐ボタンが押されるまで続く (作戦の終了時刻では終わらない)。
 // state: "done" 討伐済み, "skip" 出撃前に対象が討伐された, "fighting" 挑戦中,
@@ -188,8 +189,9 @@ function schedule(now) {
       if (prev) {
         at = Math.max(at, readyAt(prev));
         if (!prev.known) { known = false; wait = prev.wait; }
-        gate(killTime(prev.x.level, prev.x.action), planned(prev.x.level, prev.x.action),
-          `${BOSS_LABEL[prev.x.action]} 討伐待ち`);
+        // 前のボスの撃破は戦闘が終わるのを待つだけなので、作戦の余裕は足さない
+        // (足すと、クール明けで決まる再出撃まで撃破の遅れの分だけ遅れてしまう)
+        gate(killTime(prev.x.level, prev.x.action), null, `${BOSS_LABEL[prev.x.action]} 討伐待ち`);
       }
       const g = bossGate(x.level, x.action);
       gate(g.actual, g.planned, g.reason);

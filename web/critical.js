@@ -44,7 +44,7 @@ function critRun(xs, byPlayer, planned, target, extra) {
         const gate = (a, p) => { if (a !== null) t = Math.max(t, p === null ? a : a + Math.max(0, x.push - p)); };
         if (prev >= 0) {
           t = Math.max(t, at[prev] + xs[prev].lag + COOL_TIME);
-          gate(get(kills, xs[prev].k), get(planned, xs[prev].k));
+          gate(get(kills, xs[prev].k), null);
         }
         const [ga, gp] = open(x.level, x.b);
         gate(ga, gp);
