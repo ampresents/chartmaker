@@ -39,15 +39,21 @@ def test_chart_matches_golden(name, config, tmp_path):
             int(diff.sum()), xs.min(), xs.max(), ys.min(), ys.max(), tmp_path))
 
 
-def test_chart_rate_one_written_out(config, tmp_path):
-    # 割合を省いた行に 1.00 を書き足しても (エディタの書き出し)、画像は 1 画素も変わらない
+def test_chart_rate_two_decimals(config, tmp_path):
+    # エディタの書き出しのように割合を小数 2 桁で書いても (省略 → 1.00、0.5 → 0.50)、画像は 1 画素も変わらない
     out = []
     with open(os.path.join(FIXTURES, "plan_full.txt"), encoding="utf-8") as f:
         for line in f.read().splitlines():
-            if not line.startswith(("#", "::")) and line.count(",") == 3:
-                line += ",1.00"
+            if not line.startswith(("#", "::")):
+                items = line.split(",")
+                if len(items) == 4:
+                    items.append("1.00")
+                elif len(items) == 5:
+                    items[4] = "{:.2f}".format(float(items[4]))
+                line = ",".join(items)
             out.append(line)
     assert any(line.endswith(",1.00") for line in out)
+    assert any(line.endswith(",0.50") for line in out) and any(line.endswith(",0.60") for line in out)
     src = tmp_path / "plan.txt"
     src.write_text("\n".join(out) + "\n", encoding="utf-8")
     actual_path = str(tmp_path / "full.png")

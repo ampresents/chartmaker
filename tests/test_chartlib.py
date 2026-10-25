@@ -180,7 +180,8 @@ def test_generate_detail_score_is_capped_at_level_21():
     assert {d["score"] for d in detail if d["level"] >= 21 and d["action"] == "1st_boss"} == {250000}
 
 
-@pytest.mark.parametrize("rate, est", [("1.0", 50000), ("1.00", 50000), ("1", 50000), ("0.333", 16650), ("1.5", 50000), ("-1", 0)])
+@pytest.mark.parametrize("rate, est", [("1.0", 50000), ("1.00", 50000), ("1", 50000), ("0.333", 16650), ("1.5", 50000), ("-1", 0),
+                                       ("0.00", 0), ("0.50", 25000), ("0.65", 32500), ("0.777", 38850)])
 def test_est_score_rate_is_clamped(rate, est):
     (d,) = generate_detail([cmd("A01", 1, "1st_boss", 10, rate)], {"timelag": "0"})
     assert d["est_score"] == est

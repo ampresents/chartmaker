@@ -58,6 +58,30 @@ def test_rate_one_written_out(client):
     assert {d.get("note") for d in plan["detail"]} >= {"注意"}
 
 
+def test_rate_two_decimals(client):
+    # 0.00 / 0.50 / 0.777 / 1.00 と書いても、0 / .5 / 0.777 / 省略と同じ得点になる
+    rates = [("0", "0.00"), (".5", "0.50"), ("0.777", "0.777"), ("", "1.00")]
+    texts = ([], [])
+    i = 0
+    for line in PLAN.splitlines():
+        if not line.startswith(("#", "::")) and line.count(",") == 3:
+            for k, t in enumerate(texts):
+                t.append(line + "," + rates[i % len(rates)][k] + (",lock" if k else ""))
+            i += 1
+        else:
+            for t in texts:
+                t.append(line)
+    assert i >= len(rates)
+    short, written = ("\n".join(t) for t in texts)
+    pick = lambda ds: [(d["level"], d["score"], d["est_score"]) for d in ds]
+    base, got = (client.post("/api/detail", json={"text": t}).json["detail"] for t in (short, written))
+    assert pick(got) == pick(base)
+    assert {d["est_score"] for d in got if d["score_rate"] == "0.00"} == {0}
+    r = client.post("/api/sessions", json={"text": written, "start_epoch_ms": 1_700_000_000_000})
+    assert r.status_code == 200
+    assert client.post("/api/render", json={"text": written}).status_code == 200
+
+
 @pytest.mark.parametrize("change, message", [
     (("::Realm_boss=blue", "::Realm_boss=purple"), "::Realm_boss="),
     (("::comment=plain", "::timelag=x"), "::timelag"),

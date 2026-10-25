@@ -164,6 +164,14 @@ function stateFromParsed(commands, constants) {
 const LOCK_MARK = "#lock";
 const NOTE_MARK = "#note ";
 const RANGE_NOTE = /^#note@(\d+)-(\d+)(?: (.*))?$/;
+// 割合を小数 2 桁以上で書く (0 → 0.00, 0.5 → 0.50, 0.777 → 0.777)。3 桁目以降は丸めない
+function rateText(r) {
+  const s = String(r);
+  const m = /^-?\d+(?:\.(\d*))?$/.exec(s);
+  if (!m || (m[1] || "").length >= 2) return s;
+  return r.toFixed(2);
+}
+
 const LOCK_WORDS = ["lock", "unlock"];
 // 撃破率とみなす数 (ChartLib.RATE_RE と同じ。半角のみ)
 const RATE_RE = /^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?$/;
@@ -250,8 +258,8 @@ function toText(st = state) {
     let prevEnd = 0;
     for (const a of p.actions) {
       let line = `${p.id},${a.start - prevEnd},${a.boss},${a.battle}`;
-      // 割合は省略できるが、読む人にわかるよう 1 も 1.00 と書く
-      line += `,${a.rate === 1 ? "1.00" : a.rate}`;
+      // 割合は省略できるが、読む人にわかるよう 1 も 1.00 と書く (小数は 2 桁以上)
+      line += `,${rateText(a.rate)}`;
       // ロックと注意点は同じ行の末尾に書く（注意点だけなら unlock を挟む）
       const note = noteText(a.note);
       if (a.locked || note) line += `,${a.locked ? "lock" : "unlock"}`;
