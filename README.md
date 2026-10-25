@@ -46,7 +46,7 @@ export PROJECT=<プロジェクトID>
 # gcloud が Python を見つけられずに失敗するのを防ぐ
 export CLOUDSDK_PYTHON="$(cygpath -w "$PWD/.venv/Scripts/python.exe")"
 # gcloud に PATH が通っていない場合
-export PATH="$PATH:/c/Users/<ユーザー名>/AppData/Local/Google/Cloud SDK/google-cloud-sdk/bin"
+export PATH="$PATH:$(cygpath "$LOCALAPPDATA")/Google/Cloud SDK/google-cloud-sdk/bin"
 ```
 
 <details>
@@ -56,7 +56,7 @@ export PATH="$PATH:/c/Users/<ユーザー名>/AppData/Local/Google/Cloud SDK/goo
 cd /d E:\chartmaker
 set PROJECT=<プロジェクトID>
 set CLOUDSDK_PYTHON=E:\chartmaker\.venv\Scripts\python.exe
-set PATH=%PATH%;C:\Users\<ユーザー名>\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin
+set PATH=%PATH%;%LOCALAPPDATA%\Google\Cloud SDK\google-cloud-sdk\bin
 "C:\Program Files\Git\bin\bash.exe" deploy/deploy.sh
 ```
 
