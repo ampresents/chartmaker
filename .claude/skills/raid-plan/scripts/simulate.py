@@ -11,6 +11,7 @@
 import argparse
 import json
 import math
+import re
 import sys
 
 BOSSES = ("1st_boss", "2nd_boss", "3rd_boss", "Realm_boss")
@@ -18,17 +19,15 @@ REGULAR = BOSSES[:3]
 COOL_TIME = 300   # 出撃からクールタイム明けまで (timelag を除く)
 CHART_SEC = 3600  # 作戦の長さ (60 分)
 IDLE_WARN = 300   # これ以上何もしていない時間を「空き」として報告する
+RATE_RE = re.compile(r"[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?")  # ChartLib.RATE_RE と同じ
 
 
 def split_action(item):
     """ChartLib.split_action と同じ。ID,待ち秒,ボス,戦闘秒[,割合][,lock|unlock[,注意点]] から
-    ロックと注意点を除いた項目を返す (lock/unlock でも数でもない余分な項目があれば None)"""
-    words = ("lock", "unlock")
+    ロックと注意点を除いた項目を返す。5 項目目は数のときだけ割合で、それ以外は lock/unlock か注意点"""
     head, rest = item[:4], item[4:]
-    if rest and rest[0].strip().lower() not in words:
-        head.append(rest.pop(0))
-    if rest and any(s.strip() for s in rest) and rest[0].strip().lower() not in words:
-        return None
+    if rest and RATE_RE.fullmatch(rest[0].strip()):
+        head.append(rest[0].strip())
     return head
 
 
@@ -56,7 +55,7 @@ def parse(lines):
         errors.append("::timelag が整数ではありません")
         timelag = 0
     for n, line, item in raw:
-        if item is None or len(item) not in (4, 5) or item[2] not in BOSSES:
+        if len(item) not in (4, 5) or item[2] not in BOSSES:
             errors.append(f"[{n}] 形式が違います: {line}")
             continue
         try:

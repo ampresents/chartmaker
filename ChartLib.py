@@ -3,6 +3,7 @@ warnings.filterwarnings('ignore')
 
 import cv2
 import math
+import re
 import os
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -58,23 +59,27 @@ def format_clock(sec, remaining=False):
     return "{}{:02d}:{:02d}".format(sign, abs(sec)//60, abs(sec)%60)
 
 LOCK_WORDS = ("lock", "unlock")
+# 撃破率とみなす数 (半角のみ。nan/inf や全角数字は数ではなく注意点として読む)。web/app.js の RATE_RE と同じ
+RATE_RE = re.compile(r"[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?")
 
 def split_action(line):
     """行動行 ID,待ち秒,ボス,戦闘秒[,撃破率][,lock|unlock[,注意点]] を (先頭 5 項目, ロック, 注意点) に分ける。
-    ロックは True/False (書いていなければ None)。注意点はカンマを含めてよい (書いていなければ None)。
-    ロックと注意点はエディタ用でチャートには影響しない。lock/unlock でも数でもない 5・6 項目目は ValueError"""
+    5 項目目が数なら撃破率 (空なら省略と同じ)。その次が lock/unlock ならロック (True/False、書いていなければ None)。
+    残りは行末まで注意点で、カンマを含めてよい (書いていなければ None)。末尾の空の項目は無視する。
+    ロックと注意点はエディタ用でチャートには影響しない"""
     item = line.split(",")
     head, rest = item[:4], item[4:]
+    while rest and not rest[-1].strip():
+        rest.pop()
     rate = "1.0"  # 見積もりはデフォルトでワンパン
-    if rest and rest[0].strip().lower() not in LOCK_WORDS:
-        rate = rest.pop(0)
-    lock = note = None
-    if rest and any(s.strip() for s in rest):
-        word = rest.pop(0).strip().lower()
-        if word not in LOCK_WORDS:
-            raise ValueError(line)
-        lock = word == "lock"
-        note = ",".join(rest).strip() or None
+    if rest and not rest[0].strip():
+        rest.pop(0)
+    elif rest and RATE_RE.fullmatch(rest[0].strip()):
+        rate = rest.pop(0).strip()
+    lock = None
+    if rest and rest[0].strip().lower() in LOCK_WORDS:
+        lock = rest.pop(0).strip().lower() == "lock"
+    note = ",".join(rest).strip() or None
     return tuple(head) + (rate,), lock, note
 
 def parse(text):
@@ -93,10 +98,7 @@ def parse(text):
         # 行動の処理
         if len(line.split(",")) <= 1:
             continue
-        try:
-            item, _, _ = split_action(line)
-        except ValueError:
-            raise Exception("[line:{}] {}".format(i+1, line))
+        item, _, _ = split_action(line)
         if len(item) < 5:
             raise Exception("[line:{}] {}".format(i+1, line))
 
@@ -109,7 +111,7 @@ def parse(text):
             rate = float(item[4])
         except:
             raise Exception("[line:{}] {}".format(i+1, line))
-        # nan / inf の与ダメージ率は書いていないのと同じ 1.0 にする (nan は得点計算で落ちるため)
+        # 桁が大きすぎて inf になった与ダメージ率は書いていないのと同じ 1.0 にする
         if not math.isfinite(rate):
             item = item[:4] + ("1.0",)
         chart.append(item[:5])

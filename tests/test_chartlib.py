@@ -46,9 +46,9 @@ def test_parse_ignores_inline_lock_and_note():
     assert parse(lines(inline)) == parse(lines(plain))
 
 
-@pytest.mark.parametrize("rate", ["nan", "NaN", "inf", "-inf", " Infinity "])
+@pytest.mark.parametrize("rate", ["nan", "inf", "9" * 400])
 def test_parse_non_finite_rate_is_one(rate):
-    # 有限でない与ダメージ率は書いていないのと同じ 1.0 になり、得点計算でも落ちない
+    # nan / inf は注意点として読み、桁が大きすぎて inf になる数は 1.0 にするので、得点計算で落ちない
     commands, constants = parse(lines("::timelag=0\nAlpha01,5,1st_boss,30,{},lock\n".format(rate)))
     assert commands == [("Alpha01", "5", "1st_boss", "30", "1.0")]
     assert generate_detail(commands, constants)[0]["est_score"] == 50000
@@ -61,6 +61,21 @@ def test_parse_non_finite_rate_is_one(rate):
     ("A01,0,1st_boss,30, Unlock ,a,b ", (("A01", "0", "1st_boss", "30", "1.0"), False, "a,b")),
     ("A01,0,1st_boss,30,0.5,lock,注意", (("A01", "0", "1st_boss", "30", "0.5"), True, "注意")),
     ("A01,0,1st_boss,30,0.5,unlock,", (("A01", "0", "1st_boss", "30", "0.5"), False, None)),
+    # 5 項目目が数でも lock/unlock でもなければ、そこから行末までが注意点
+    ("A01,0,1st_boss,30,先に,回復", (("A01", "0", "1st_boss", "30", "1.0"), None, "先に,回復")),
+    ("A01,0,1st_boss,30,0.5,注意", (("A01", "0", "1st_boss", "30", "0.5"), None, "注意")),
+    ("A01,0,1st_boss,30,注意,lock", (("A01", "0", "1st_boss", "30", "1.0"), None, "注意,lock")),
+    ("A01,0,1st_boss,30,lock,0.5", (("A01", "0", "1st_boss", "30", "1.0"), True, "0.5")),
+    ("A01,0,1st_boss,30,lcok", (("A01", "0", "1st_boss", "30", "1.0"), None, "lcok")),
+    # 数は半角の 10 進表記だけ (nan / inf / 全角は注意点)
+    ("A01,0,1st_boss,30, .5 ", (("A01", "0", "1st_boss", "30", ".5"), None, None)),
+    ("A01,0,1st_boss,30,5e-1", (("A01", "0", "1st_boss", "30", "5e-1"), None, None)),
+    ("A01,0,1st_boss,30,nan", (("A01", "0", "1st_boss", "30", "1.0"), None, "nan")),
+    ("A01,0,1st_boss,30,０.５", (("A01", "0", "1st_boss", "30", "1.0"), None, "０.５")),
+    # 空の 5 項目目は撃破率の省略、末尾の空の項目は無視
+    ("A01,0,1st_boss,30,", (("A01", "0", "1st_boss", "30", "1.0"), None, None)),
+    ("A01,0,1st_boss,30,,lock", (("A01", "0", "1st_boss", "30", "1.0"), True, None)),
+    ("A01,0,1st_boss,30,lock,,", (("A01", "0", "1st_boss", "30", "1.0"), True, None)),
 ])
 def test_split_action(line, expected):
     assert split_action(line) == expected
@@ -70,10 +85,7 @@ def test_split_action(line, expected):
     "Alpha01,5,4th_boss,30",     # 不明なボス
     "Alpha01,x,1st_boss,30",     # 待ち秒数が整数でない
     "Alpha01,5,1st_boss,3.5",    # 戦闘秒数が整数でない
-    "Alpha01,5,1st_boss,30,abc", # 与ダメージ率が数でない
     "Alpha01,5,1st_boss",        # 項目が足りない
-    "Alpha01,5,1st_boss,30,0.5,abc",  # 6 項目目が lock/unlock でない
-    "Alpha01,5,1st_boss,30,lok,x",    # lock の綴り違い
 ])
 def test_parse_rejects_bad_action(line):
     with pytest.raises(Exception, match=r"\[line:2\]"):

@@ -165,15 +165,17 @@ const LOCK_MARK = "#lock";
 const NOTE_MARK = "#note ";
 const RANGE_NOTE = /^#note@(\d+)-(\d+)(?: (.*))?$/;
 const LOCK_WORDS = ["lock", "unlock"];
+// 撃破率とみなす数 (ChartLib.RATE_RE と同じ。半角のみ)
+const RATE_RE = /^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?$/;
 
 // ChartLib.split_action の JS 版。行動行の末尾から {lock: true/false/null, note: 本文/null} を読む
-// (書式の誤りは /api/parse が先に弾くので、ここでは読めない項目を無視する)
+// 5 項目目が数なら撃破率 (空なら省略)、次が lock/unlock ならロック、残りは行末まで注意点
 function splitAction(line) {
   const rest = line.split(",").slice(4);
-  const isWord = (s) => LOCK_WORDS.includes(s.trim().toLowerCase());
-  if (rest.length && !isWord(rest[0])) rest.shift();
-  if (!rest.length || !isWord(rest[0])) return { lock: null, note: null };
-  const lock = rest.shift().trim().toLowerCase() === "lock";
+  while (rest.length && !rest[rest.length - 1].trim()) rest.pop();
+  if (rest.length && (!rest[0].trim() || RATE_RE.test(rest[0].trim()))) rest.shift();
+  let lock = null;
+  if (rest.length && LOCK_WORDS.includes(rest[0].trim().toLowerCase())) lock = rest.shift().trim().toLowerCase() === "lock";
   return { lock, note: rest.join(",").trim() || null };
 }
 
