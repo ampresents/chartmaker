@@ -224,3 +224,37 @@ def test_layout_spreads_overlapping_labels():
 def test_layout_does_not_go_above_header():
     (pos,) = layout_time_labels([detail_at("A01", 0, 1)])
     assert pos["battle_start"] >= 12
+
+
+# ---------------------------------------------------------------- 絵文字
+
+@pytest.fixture(scope="module")
+def name_font():
+    from PIL import ImageFont
+    from ChartLib import BASE_DIR
+    return ImageFont.truetype(BASE_DIR + "/font/NotoSansJP-Regular.otf", 40)
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("山田", [(None, "山田")]),
+    ("A😀B", [(None, "A"), ("1f600.png", "😀"), (None, "B")]),
+    ("👨‍👩‍👧", [("1f468-200d-1f469-200d-1f467.png", "👨‍👩‍👧")]),
+    ("🇯🇵", [("1f1ef-1f1f5.png", "🇯🇵")]),
+    ("👍🏽", [("1f44d-1f3fd.png", "👍🏽")]),
+    ("#️⃣", [("23-20e3.png", "#️⃣")]),
+    ("❤️", [("2764.png", "❤️")]),
+    ("⚽", [("26bd.png", "⚽")]),  # Emoji_Presentation: フォントに白黒のグリフがあっても絵文字
+    ("©#1", [(None, "©#1")]),  # フォントにある記号は文字のまま
+    ("©️", [("a9.png", "©️")]),
+])
+def test_split_emoji(name_font, text, expected):
+    from ChartLib import split_emoji
+    assert split_emoji(text, name_font) == expected
+
+
+def test_text_width_with_emoji(name_font):
+    from PIL import Image, ImageDraw
+    from ChartLib import text_width
+    draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+    assert text_width(draw, "山田", name_font) == draw.textbbox((0, 0), "山田", font=name_font)[2]
+    assert text_width(draw, "山田😀", name_font) == 80 + 40

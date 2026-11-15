@@ -243,6 +243,113 @@ def layout_time_labels(details):
     return positions
 
 
+# 絵文字: NotoSansJP には絵文字のグリフがない (□に×が出る) ため、絵文字だけ Twemoji の画像 (72x72 PNG を
+# 1 つの zip に無圧縮でまとめたもの、CC-BY 4.0、font/TWEMOJI-LICENSE.txt) を貼る。
+# ファイル名は "1f468-200d-1f469" のようなコードポイント列。FE0F (異体字セレクタ) の有無は無視して照合する
+EMOJI_ZIP = "/font/twemoji72.zip"
+VS16, VS15 = "️", "︎"
+# 既定で絵文字表示になる BMP の文字 (Unicode emoji-data の Emoji_Presentation)。
+# NotoSansJP が白黒のグリフを持っていても、ブラウザと同じくカラー絵文字で描く
+EMOJI_PRESENTATION_BMP = frozenset(c for a, b in (
+    (0x231A, 0x231B), (0x23E9, 0x23EC), (0x23F0, 0x23F0), (0x23F3, 0x23F3), (0x25FD, 0x25FE),
+    (0x2614, 0x2615), (0x2648, 0x2653), (0x267F, 0x267F), (0x2693, 0x2693), (0x26A1, 0x26A1),
+    (0x26AA, 0x26AB), (0x26BD, 0x26BE), (0x26C4, 0x26C5), (0x26CE, 0x26CE), (0x26D4, 0x26D4),
+    (0x26EA, 0x26EA), (0x26F2, 0x26F3), (0x26F5, 0x26F5), (0x26FA, 0x26FA), (0x26FD, 0x26FD),
+    (0x2705, 0x2705), (0x270A, 0x270B), (0x2728, 0x2728), (0x274C, 0x274C), (0x274E, 0x274E),
+    (0x2753, 0x2755), (0x2757, 0x2757), (0x2795, 0x2797), (0x27B0, 0x27B0), (0x27BF, 0x27BF),
+    (0x2B1B, 0x2B1C), (0x2B50, 0x2B50), (0x2B55, 0x2B55)) for c in range(a, b + 1))
+_emoji = {} # "zip", "index" ({コードポイント列 (FE0F 抜き): ファイル名}), "maxlen", ("img", 名前, 大きさ), ("missing", フォント, 文字)
+
+def emoji_index():
+    if "index" not in _emoji:
+        import zipfile
+        z = zipfile.ZipFile(BASE_DIR + EMOJI_ZIP)
+        index = {}
+        for name in z.namelist():
+            stem = name.rsplit("/", 1)[-1][:-4]
+            if not name.endswith(".png") or not stem:
+                continue
+            key = tuple(int(h, 16) for h in stem.split("-") if h != "fe0f")
+            index.setdefault(key, name)
+        _emoji.update(zip=z, index=index, maxlen=max(map(len, index)))
+    return _emoji["index"]
+
+# フォントにその文字のグリフがあるか (ないと .notdef と同じ形になる)
+def font_lacks(font, ch):
+    key = ("missing", font.path, font.size, ch)
+    if key not in _emoji:
+        sig = lambda c: (font.getmask(c).size, bytes(font.getmask(c)))
+        _emoji[key] = sig(ch) == sig("\U0010FFFD")
+    return _emoji[key]
+
+# 文字列を [(絵文字のファイル名 or None, 部分文字列)] に分ける。絵文字は最長一致で 1 つずつ
+def split_emoji(text, font):
+    index = emoji_index()
+    runs = []
+    i = 0
+    while i < len(text):
+        found = None
+        if text[i] != VS16:
+            for n in range(min(_emoji["maxlen"] * 2, len(text) - i), 0, -1):
+                sub = text[i:i+n]
+                key = tuple(ord(c) for c in sub if c != VS16)
+                if key not in index:
+                    continue
+                end = i + n + (text[i+n:i+n+1] == VS16)
+                if len(key) == 1: # 1 文字の記号 (©, ☀ など) は文字として描けるなら文字のまま
+                    cp = key[0]
+                    if text[i+n:i+n+1] == VS15 or not (end > i + 1 or cp >= 0x1F000 or cp in EMOJI_PRESENTATION_BMP or font_lacks(font, sub)):
+                        break
+                found = (index[key], text[i:end])
+                break
+        if found:
+            runs.append(found)
+            i += len(found[1])
+        else:
+            if runs and runs[-1][0] is None:
+                runs[-1] = (None, runs[-1][1] + text[i])
+            else:
+                runs.append((None, text[i]))
+            i += 1
+    return runs
+
+# 絵文字を size x size に縮小した RGBA 画像。チャートは BGR なので、色の並びも BGR にして返す
+def emoji_image(name, size):
+    key = ("img", name, size)
+    if key not in _emoji:
+        import io
+        im = Image.open(io.BytesIO(_emoji["zip"].read(name))).convert("RGBA")
+        im = im.resize((size, size), Image.LANCZOS) # RGBA の縮小は Pillow がアルファを掛けて行う
+        r, g, b, a = im.split()
+        _emoji[key] = Image.merge("RGBA", (b, g, r, a))
+    return _emoji[key]
+
+# draw.textbbox(...)[2] (文字列の右端) と同じ幅。絵文字は 1 つ font.size 幅
+def text_width(draw, text, font):
+    runs = split_emoji(text, font)
+    if all(name is None for name, _ in runs):
+        return draw.textbbox((0, 0), text, font=font)[2] # 絵文字がなければ従来どおり (画像を変えない)
+    return int(round(sum(font.size if name else font.getlength(s) for name, s in runs)))
+
+# draw.text と同じだが、絵文字は Twemoji の画像で描く。絵文字は全角文字 (あ) の字面の上下中央に合わせる
+def draw_text(img, draw, xy, text, font, fill):
+    runs = split_emoji(text, font)
+    if all(name is None for name, _ in runs):
+        draw.text(xy, text, font=font, fill=fill)
+        return
+    x, y = xy
+    top, bottom = font.getbbox("あ")[1::2]
+    ey = int(round(y + (top + bottom - font.size) / 2))
+    for name, s in runs:
+        if name:
+            em = emoji_image(name, font.size)
+            img.paste(em, (int(round(x)), ey), em)
+            x += font.size
+        else:
+            draw.text((x, y), s, font=font, fill=fill)
+            x += font.getlength(s)
+
+
 # 画像生成
 def generate_chart(src, dst, config, margin_top=160):
     with open(src, "r", encoding="utf-8") as p1:
@@ -367,8 +474,8 @@ def generate_chart(src, dst, config, margin_top=160):
     for i, raw_name in enumerate(player_list):
         # メンバー名の描画
         name = get_player_name(setting, raw_name)
-        w = draw.textbbox((0, 0), name, font=font_name)[2] # 右端 (旧 textsize の幅と同じ)
-        draw.text((i*246+116+(246-w)//2, 48), name, font=font_name, fill=(*setting["player_name"]["color"], 0))
+        w = text_width(draw, name, font_name) # 右端 (旧 textsize の幅と同じ)
+        draw_text(img, draw, (i*246+116+(246-w)//2, 48), name, font_name, (*setting["player_name"]["color"], 0))
 
         # チーム名を描画
         if "display_team" in setting:
@@ -378,7 +485,7 @@ def generate_chart(src, dst, config, margin_top=160):
 
     # コメントを描画
     font = ImageFont.truetype(BASE_DIR + setting["comment_font"]["font"], setting["comment_font"]["fontsize"])
-    draw.text((420, 3932), setting["comment"], font=font, fill=(*setting["comment_font"]["color"], 0))
+    draw_text(img, draw, (420, 3932), setting["comment"], font, (*setting["comment_font"]["color"], 0))
 
     base = np.array(img) # PIL型の画像をcv2(NumPy)型に変換
     # ここまでPILで処理
